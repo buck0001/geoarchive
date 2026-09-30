@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ArrowRight, Camera, LocateFixed, MapPin, MessageSquare, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
+import ContactLinks from "@/components/contact-links";
 import ThemeToggle from "@/components/theme-toggle";
 import { categoryColors, categoryIcons } from "@/lib/photo-style";
 import { createClient } from "@/lib/supabase/client";
@@ -323,7 +324,7 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
           <div className="explore-privacy-note"><span className="sticker sticker-sun">✳</span><span><strong>Shared with care.</strong> Only places their contributor chose to make public appear here. Approximate pins are rounded for privacy.</span></div>
         </section>
       </section>
-      <footer className="page-footer"><span>SEE A PLACE. SHARE WHAT YOU LEARNED. <span className="footer-star">✳</span></span><Link href="/login?mode=signup">Sign in to add places →</Link></footer>
+      <footer className="page-footer"><span>SEE A PLACE. SHARE WHAT YOU LEARNED. <span className="footer-star">✳</span></span><ContactLinks /><Link href="/login?mode=signup">Sign in to add places →</Link></footer>
     </main>
   );
 }

@@ -60,8 +60,8 @@ export default function MapCanvas({
       });
 
       leaflet
-        .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        .tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+          attribution: "Tiles &copy; Esri — Sources: Esri, HERE, Garmin, FAO, NOAA, USGS, EPA, NPS",
           maxZoom: 19,
         })
         .addTo(map);

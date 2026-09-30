@@ -21,6 +21,8 @@ export default async function ExplorePage() {
   if (!supabase) return <Explore photos={[]} reviews={[]} viewerId={null} loadError="Could not connect to Supabase." />;
 
   const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const sessionError =
+    authError?.name === "AuthSessionMissingError" ? null : authError;
 
   const { data: rows, error } = await supabase
     .from("photos")
@@ -45,7 +47,7 @@ export default async function ExplorePage() {
     ? rows.length
     : (signedUrls ?? []).filter((image) => !image.signedUrl).length;
   const loadErrors: string[] = [];
-  if (authError) loadErrors.push(`Could not verify your sign-in status: ${authError.message}`);
+  if (sessionError) loadErrors.push(`Could not verify your sign-in status: ${sessionError.message}`);
   if (signedUrlError) loadErrors.push(`Could not load shared images: ${signedUrlError.message}`);
   else if (imageFailures) loadErrors.push(`${imageFailures} shared image(s) could not be loaded; their place notes are still available.`);
 
@@ -74,7 +76,7 @@ export default async function ExplorePage() {
     <Explore
       photos={photos}
       reviews={reviews}
-      viewerId={authError ? null : user?.id ?? null}
+      viewerId={sessionError ? null : user?.id ?? null}
       loadError={loadErrors.join(" ")}
     />
   );

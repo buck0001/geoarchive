@@ -41,12 +41,13 @@ The publishable/anon key is intended for browser use. Never put a Supabase secre
 - Public Explore guide for contributor-shared photos and notes, with map, search, category filters, and an experience-is-not-a-guarantee disclaimer. Browsing does not require an account.
 - Guest visitors land on Explore; a signed-in account is required to open the private journal and add places.
 - Anyone can read reviews on public places; posting, editing, or deleting a review requires signing in. Each account can keep one text review per place.
-- Interactive OpenStreetMap, photo markers, search, category filters, and signed image URLs.
+- Interactive Esri World Street Map with English place labels, photo markers, search, category filters, and signed image URLs.
 - Maps start centered on Africa. A person’s device location is only requested after they choose the location button or the current-location option when adding a place; it is never collected automatically.
 - Upload to Supabase Storage followed by a metadata insert, with rollback cleanup on failure.
 - Delete owned records and their stored images.
 - WGS84 coordinate display, distance/area tools, and an RLS-aware `nearby_photos` database function.
 - Light/dark theme preference saved in this browser.
+- Footer profile links to [GitHub](https://github.com/buck0001) and [X](https://x.com/zkbuck_).
 
 ## Privacy and security notes
 

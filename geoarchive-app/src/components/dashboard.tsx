@@ -31,6 +31,7 @@ import { useMemo, useRef, useState, type FormEvent } from "react";
 import { categories, type Category, type PhotoRecord } from "@/types/photo";
 import { createClient } from "@/lib/supabase/client";
 import ThemeToggle from "@/components/theme-toggle";
+import ContactLinks from "@/components/contact-links";
 import { categoryColors, categoryIcons } from "@/lib/photo-style";
 
 const MapCanvas = dynamic(() => import("@/components/map-canvas"), { ssr: false });
@@ -632,7 +633,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
         </div>
       </section>
 
-      <footer className="page-footer"><span>MADE FOR THE PLACES THAT STAY WITH YOU <span className="footer-star">✳</span></span><span>GEOARCHIVE&nbsp; © 2026</span></footer>
+      <footer className="page-footer"><span>MADE FOR THE PLACES THAT STAY WITH YOU <span className="footer-star">✳</span></span><ContactLinks /><span>GEOARCHIVE&nbsp; © 2026</span></footer>
 
       {modalOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
