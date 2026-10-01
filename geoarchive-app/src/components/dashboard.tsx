@@ -20,6 +20,7 @@ import {
   Eye,
   Filter,
   Layers2,
+  LogOut,
   LocateFixed,
   MapPin,
   Minus,
@@ -48,10 +49,10 @@ type ToolMode = "browse" | "distance" | "area" | "nearby";
 type DashboardProps = {
   initialPhotos: PhotoRecord[];
   userId: string;
-  userEmail: string;
+  username: string;
   displayName: string;
   loadError: string;
-  initialArchive?: { latitude: number; longitude: number; name: string } | null;
+  initialArchive?: { latitude: number | null; longitude: number | null; name: string; placeId?: string; contribute?: boolean } | null;
 };
 
 function distanceBetween(a: Coordinates, b: Coordinates) {
@@ -62,19 +63,24 @@ function distanceBetween(a: Coordinates, b: Coordinates) {
   );
 }
 
-export default function Dashboard({ initialPhotos, userId, userEmail, displayName, loadError, initialArchive = null }: DashboardProps) {
+export default function Dashboard({ initialPhotos, userId, username, displayName, loadError, initialArchive = null }: DashboardProps) {
   const router = useRouter();
   const [photos, setPhotos] = useState<PhotoRecord[]>(initialPhotos);
   const [activePhotoId, setActivePhotoId] = useState<string | null>(initialPhotos[0]?.id ?? null);
   const [categoryFilter, setCategoryFilter] = useState<Category | "All">("All");
   const [query, setQuery] = useState("");
   const [modalOpen, setModalOpen] = useState(Boolean(initialArchive));
-  const [titleDraft, setTitleDraft] = useState(initialArchive?.name ?? "");
+  const [selectedPlaceId, setSelectedPlaceId] = useState(initialArchive?.placeId ?? null);
+  const [titleDraft, setTitleDraft] = useState(initialArchive?.contribute ? "" : initialArchive?.name ?? "");
   const [locationNameDraft, setLocationNameDraft] = useState(initialArchive?.name ?? "");
-  const [locationMode, setLocationMode] = useState<"none" | "current" | "manual">(initialArchive ? "manual" : "none");
+  const [locationMode, setLocationMode] = useState<"none" | "current" | "manual">(
+    initialArchive && initialArchive.latitude !== null && initialArchive.longitude !== null ? "manual" : "none",
+  );
   const [pickingLocation, setPickingLocation] = useState(false);
   const [manualLocation, setManualLocation] = useState<Coordinates | null>(
-    initialArchive ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude } : null,
+    initialArchive && initialArchive.latitude !== null && initialArchive.longitude !== null
+      ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude }
+      : null,
   );
   const [geolocationError, setGeolocationError] = useState("");
   const [toolMode, setToolMode] = useState<ToolMode>("browse");
@@ -83,7 +89,9 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
   const [nearbyPhotoIds, setNearbyPhotoIds] = useState<string[] | null>(null);
   const [radius, setRadius] = useState(1000);
   const [mapCenter, setMapCenter] = useState<Coordinates | null>(
-    initialArchive ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude } : null,
+    initialArchive && initialArchive.latitude !== null && initialArchive.longitude !== null
+      ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude }
+      : null,
   );
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [droppedPin, setDroppedPin] = useState<Coordinates | null>(null);
@@ -191,13 +199,14 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
     setDroppedPin(null);
   }
 
-  function startArchive(location: { latitude: number; longitude: number; name: string }) {
+  function startArchive(location: { latitude: number; longitude: number; name: string; placeId?: string }) {
     setSearchLocation(null);
     setMapCenter({ latitude: location.latitude, longitude: location.longitude });
     setManualLocation({ latitude: location.latitude, longitude: location.longitude });
     setLocationMode("manual");
-    setTitleDraft(location.name.slice(0, 100));
+    setTitleDraft(location.placeId ? "" : location.name.slice(0, 100));
     setLocationNameDraft(location.name);
+    setSelectedPlaceId(location.placeId ?? null);
     setFormError("");
     setModalOpen(true);
   }
@@ -327,6 +336,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
     const imagePath = `${userId}/${crypto.randomUUID()}.${extensionByType[file.type]}`;
     let uploadedPath: string | null = null;
     let insertedId: string | null = null;
+    let createdPlaceId: string | null = null;
     setIsSaving(true);
     try {
       const { error: uploadError } = await supabase.storage
@@ -339,9 +349,27 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
       if (uploadError) throw new Error(`Image upload failed: ${uploadError.message}`);
       uploadedPath = imagePath;
 
+      let placeId = selectedPlaceId;
+      if (!placeId) {
+        const placeResult = await supabase.from("places").insert({
+          created_by: userId,
+          name: (submittedLocationName || title).slice(0, 200),
+          category,
+          latitude,
+          longitude,
+          location_name: point ? submittedLocationName || `${latitude?.toFixed(4)}, ${longitude?.toFixed(4)}` : "",
+          description: "",
+          visibility,
+        }).select("id").single();
+        if (placeResult.error) throw new Error(`Place could not be created: ${placeResult.error.message}`);
+        placeId = placeResult.data.id;
+        createdPlaceId = placeId;
+      }
+
       const { data: inserted, error: insertError } = await supabase
         .from("photos")
         .insert({
+          place_id: placeId,
           user_id: userId,
           title,
           description,
@@ -365,6 +393,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
 
       const nextPhoto: PhotoRecord = {
         id: inserted.id,
+        placeId,
         userId,
         title,
         description,
@@ -380,6 +409,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
       };
       setPhotos((existing) => [nextPhoto, ...existing]);
       setActivePhotoId(nextPhoto.id);
+      setSelectedPlaceId(null);
       setModalOpen(false);
       setLocationMode("none");
       setManualLocation(null);
@@ -391,6 +421,10 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
       if (insertedId) {
         const { error: deleteError } = await supabase.from("photos").delete().eq("id", insertedId);
         if (deleteError) cleanupMessages.push(`Photo cleanup failed: ${deleteError.message}`);
+      }
+      if (createdPlaceId) {
+        const { error: placeDeleteError } = await supabase.from("places").delete().eq("id", createdPlaceId);
+        if (placeDeleteError) cleanupMessages.push(`Place cleanup failed: ${placeDeleteError.message}`);
       }
       if (uploadedPath) {
         const { error: removeError } = await supabase.storage.from("photos").remove([uploadedPath]);
@@ -461,8 +495,11 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
           <button className="icon-button" type="button" aria-label="Help">
             <CircleHelp size={18} />
           </button>
-          <button className="avatar-button" type="button" aria-label={`Sign out ${userEmail}`} onClick={signOut}>
-            {(displayName || userEmail).slice(0, 1).toUpperCase()}
+          <Link className="avatar-button account-avatar-link" href="/account" aria-label={`Account settings for ${username ? `@${username}` : "your account"}`} title="Account settings">
+            {(username || displayName || "U").slice(0, 1).toUpperCase()}
+          </Link>
+          <button className="icon-button" type="button" aria-label="Sign out" title="Sign out" onClick={signOut}>
+            <LogOut size={16} />
           </button>
         </div>
       </header>
@@ -485,6 +522,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
             setPickingLocation(false);
             setTitleDraft("");
             setLocationNameDraft("");
+            setSelectedPlaceId(null);
             setModalOpen(true);
           }}>
             <Plus size={17} strokeWidth={2.5} /> Add a place <ArrowRight size={16} />
@@ -542,7 +580,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
 
           <div className="sidebar-footer">
             <span className="footer-avatar">A</span>
-            <span className="footer-user"><strong>{displayName || userEmail}</strong><small>Personal archive</small></span>
+            <Link className="footer-user" href="/account"><strong>@{username || "member"}</strong><small>Account settings</small></Link>
             <button type="button" aria-label="Sign out" onClick={signOut}><ChevronDown size={16} /></button>
           </div>
         </aside>
@@ -567,8 +605,13 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
           <LocationSearch
             photos={photos}
             onSelect={selectSearchLocation}
-            onOpenArchived={(photo) => setActivePhotoId(photo.id)}
-            onArchive={startArchive}
+            onOpenArchived={(location) => {
+              if (location.placeId) router.push(`/places/${location.placeId}`);
+            }}
+            onContribute={(location) => {
+              if (location.placeId) startArchive({ ...location, placeId: location.placeId });
+            }}
+            onArchive={(location) => startArchive({ ...location, placeId: location.placeId ?? undefined })}
           />
 
           <div className="map-workspace">
@@ -709,8 +752,8 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
                   if (label && target) target.textContent = label;
                 }} />
               </button>
-              <label className="field-label">WHAT SHOULD WE CALL IT?
-                <input className="text-input" name="title" placeholder="e.g. The road home" maxLength={100} required value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} />
+              <label className="field-label">{selectedPlaceId ? "PHOTO TITLE OR NOTE" : "WHAT SHOULD WE CALL IT?"}
+                <input className="text-input" name="title" placeholder={selectedPlaceId ? "What does this photo show?" : "e.g. The road home"} maxLength={100} required value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} />
               </label>
               <div className="form-row">
                 <label className="field-label">A LITTLE NOTE
@@ -755,7 +798,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
                       </select>
                     </label>
                     <label className="field-label">WHO CAN SEE THIS?
-                      <select className="text-input select-input" name="visibility" defaultValue="private">
+                      <select className="text-input select-input" name="visibility" defaultValue={selectedPlaceId ? "public" : "private"}>
                         <option value="private">Only me</option>
                         <option value="public">Public</option>
                       </select>
@@ -764,7 +807,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
                 )}
                 {locationMode === "none" && (
                   <label className="field-label visibility-only">WHO CAN SEE THIS?
-                    <select className="text-input select-input" name="visibility" defaultValue="private">
+                    <select className="text-input select-input" name="visibility" defaultValue={selectedPlaceId ? "public" : "private"}>
                       <option value="private">Only me</option>
                       <option value="public">Public</option>
                     </select>

@@ -23,7 +23,7 @@ export default async function ForgotPasswordPage({ searchParams }: ForgotPasswor
       <section className="auth-card">
         <p className="eyebrow">BACK TO YOUR PLACES</p>
         <h1>Let’s get you back in.</h1>
-        <p className="auth-copy">Enter your account email and we’ll send a secure password reset link.</p>
+        <p className="auth-copy">Password reset is available for existing email-login accounts. Username-only accounts cannot currently recover a forgotten password. A private contact email is not used for password recovery.</p>
         {message && <p className="auth-message" role="status">{message}</p>}
         <form className="auth-form" action={requestPasswordReset}>
           <label className="field-label">EMAIL ADDRESS

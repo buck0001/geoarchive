@@ -20,21 +20,23 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
-The publishable/anon key is intended for browser use. Never put a Supabase secret or service-role key in a `NEXT_PUBLIC_` variable or commit it to source control.
+Username-only account creation uses Supabase Admin Auth on the server. Add the service-role/secret key from Project Settings → API Keys as `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. This key is server-only: never prefix it with `NEXT_PUBLIC_`, expose it to browser code, or commit it to source control.
 
 ## Supabase setup
 
 1. Create or resume a Supabase project.
 2. In the project SQL Editor, run [`supabase/migrations/20260930000000_initial_schema.sql`](./supabase/migrations/20260930000000_initial_schema.sql). It creates profile/photo tables, row-level security, the private `photos` bucket, storage policies, and the authenticated nearby-search RPC.
 3. Also run [`supabase/migrations/20260930100000_public_place_reviews.sql`](./supabase/migrations/20260930100000_public_place_reviews.sql) to enable public reading of reviews and authenticated review creation, editing, and deletion.
-4. Copy the project URL and publishable key from Project Settings → API Keys into `.env.local`.
-5. In Authentication → URL Configuration, set the site URL to `http://localhost:3000` and add `http://localhost:3000/auth/callback` as a redirect URL. Add the production origin and callback before deploying.
-6. Set the Supabase email provider confirmation flow as desired. New accounts use email/password, create a profile automatically, and return through `/auth/callback`.
-7. Restart `npm run dev` after changing `.env.local`.
+4. For a project that already has places and contributions, run [`supabase/migrations/20261001100000_multi_user_places.sql`](./supabase/migrations/20261001100000_multi_user_places.sql) after the initial and reviews migrations.
+5. Run [`supabase/migrations/20261001120000_username_optional_email_auth.sql`](./supabase/migrations/20261001120000_username_optional_email_auth.sql) after the multi-user places migration. It assigns case-insensitive unique usernames to existing profiles and creates private optional-contact-email storage.
+6. Copy the project URL, publishable key, and service-role key from Project Settings → API Keys into `.env.local`. The service-role key must remain server-only.
+7. In Authentication → URL Configuration, set the site URL to `http://localhost:3000`. New username accounts are created as confirmed Supabase Auth users without email delivery; existing email/password accounts remain available by email.
+8. Restart `npm run dev` after changing `.env.local`.
 
 ## Current features
 
-- Email/password sign-up and sign-in, email confirmation callback, and sign-out.
+- Username/password registration and login with optional private contact email; existing email/password accounts can continue signing in with email.
+- Private account settings with username and actual contribution counts. Contact email is optional and is not used for password recovery; username-only accounts cannot reset forgotten passwords.
 - Server-validated auth session and automatic Supabase cookie refresh.
 - Private photo records, private Storage objects, and per-owner row-level security.
 - Public/private visibility and exact/rounded/no-location choices.
@@ -46,6 +48,7 @@ The publishable/anon key is intended for browser use. Never put a Supabase secre
 - Click any map to drop a temporary coordinate pin and read/copy its WGS 84 coordinates. Coordinates are not saved unless separately used while adding a place.
 - Search for worldwide places, addresses, landmarks, or latitude/longitude independently of the GeoArchive archive. OpenStreetMap Nominatim results are temporary; matching archived places are shown separately, and external places can be sent to the existing add-place workflow. Search is explicit-submit and rate-limited; attribution is displayed.
 - The GIS Coordinate Tool is available without an account on its own `/gis` page, linked by the labeled compass button from both the public Explore page and signed-in journal. It recognizes labeled latitude/longitude, Easting/Northing, X/Y, and bulk point rows. It supports WGS 84 and UTM zones 31N/32N, requires a CRS for projected values, previews interpretations before plotting, and calculates line/boundary lengths and areas.
+- Places are distinct from user contributions. The `places` table stores stable place information; each user's `contributions` record links their photos and place review to that shared place. Apply `supabase/migrations/20261001100000_multi_user_places.sql` after the existing migrations to add the shared-place schema, migrate existing photos/reviews without name-based merging, and update the RLS policies.
 - Upload to Supabase Storage followed by a metadata insert, with rollback cleanup on failure.
 - Delete owned records and their stored images.
 - WGS84 coordinate display, distance/area tools, and an RLS-aware `nearby_photos` database function.
@@ -54,7 +57,7 @@ The publishable/anon key is intended for browser use. Never put a Supabase secre
 
 ## Privacy and security notes
 
-The photos bucket is private. Signed image URLs expire after one hour. Private photo rows and objects are restricted to their owner by RLS/storage policies; public rows and their images can be read without an account. Explore displays only public photo rows. Approximate coordinates are rounded to three decimal places before storage. Community notes describe personal experiences and are not guarantees about current conditions. Never share a service-role key; browser code uses only the publishable/anon key, with RLS as the authorization boundary.
+The photos bucket is private. Signed image URLs expire after one hour. Private photo rows and objects are restricted to their owner by RLS/storage policies; public rows and their images can be read without an account. Explore displays only public photo rows. Approximate coordinates are rounded to three decimal places before storage. Community notes describe personal experiences and are not guarantees about current conditions. The app's service-role key is used only in server actions for user creation and username-to-auth identity lookup; never share it, put it in a `NEXT_PUBLIC_` variable, or commit it. Browser code uses only the publishable/anon key, with RLS as the authorization boundary.
 
 ## Checks
 

@@ -1,4 +1,4 @@
-import type { PhotoRecord } from "@/types/photo";
+import type { PhotoRecord, PlaceRecord } from "@/types/photo";
 
 export type LocationCoordinate = {
   latitude: number;
@@ -7,10 +7,12 @@ export type LocationCoordinate = {
 
 export type ExternalLocation = LocationCoordinate & {
   id: string;
+  placeId: string | null;
   name: string;
   address: string;
   source: "place-search" | "coordinates";
   archivedPhoto: PhotoRecord | null;
+  archivedPlace: PlaceRecord | null;
 };
 
 export type NominatimResult = {

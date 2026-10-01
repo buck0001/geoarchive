@@ -6,9 +6,24 @@ import type { ExternalLocation } from "@/types/location-search";
 
 type Coordinates = { latitude: number; longitude: number };
 
+type MapPopup = {
+  photoId: string;
+  imageUrl: string | null;
+  category: string;
+  categoryIcon: string;
+  categoryClass: string;
+  locationName: string;
+  title: string;
+  placeDescription: string | null;
+  contributorNote: string | null;
+  stats: string;
+  href: string | null;
+};
+
 type MapCanvasProps = {
   photos: PhotoRecord[];
   activePhoto: string | null;
+  popup?: MapPopup | null;
   fitToMarkers?: boolean;
   fitToBoundary?: boolean;
   viewCenter?: Coordinates | null;
@@ -27,6 +42,7 @@ type MapCanvasProps = {
 export default function MapCanvas({
   photos,
   activePhoto,
+  popup = null,
   fitToMarkers = false,
   fitToBoundary = false,
   viewCenter = null,
@@ -207,10 +223,71 @@ export default function MapCanvas({
           iconSize: [34, 42],
           iconAnchor: [17, 38],
         });
-        leaflet
-          .marker([photo.latitude, photo.longitude], { icon })
-          .addTo(layer)
-          .on("click", () => callbacksRef.current.onSelectPhoto(photo));
+        const marker = leaflet.marker([photo.latitude, photo.longitude], { icon }).addTo(layer);
+        marker.on("click", () => callbacksRef.current.onSelectPhoto(photo));
+        if (popup?.photoId === photo.id) {
+          const content = document.createElement("article");
+          content.className = "explore-map-card";
+
+          if (popup.imageUrl) {
+            const image = document.createElement("img");
+            image.src = popup.imageUrl;
+            image.alt = "";
+            content.append(image);
+          }
+
+          const body = document.createElement("div");
+          body.className = "explore-map-card-content";
+
+          const category = document.createElement("span");
+          category.className = `place-category sticker-${popup.categoryClass}`;
+          category.textContent = `${popup.categoryIcon} ${popup.category}`;
+          body.append(category);
+
+          const location = document.createElement("p");
+          location.className = "place-location";
+          location.textContent = popup.locationName;
+          body.append(location);
+
+          const title = document.createElement("h3");
+          title.textContent = popup.title;
+          body.append(title);
+
+          if (popup.placeDescription) {
+            const description = document.createElement("p");
+            description.className = "explore-expectation";
+            description.textContent = popup.placeDescription;
+            body.append(description);
+          }
+
+          if (popup.contributorNote) {
+            const note = document.createElement("p");
+            note.className = "explore-contributor";
+            note.textContent = `Contributor note: ${popup.contributorNote}`;
+            body.append(note);
+          }
+
+          const stats = document.createElement("p");
+          stats.className = "explore-place-review-count";
+          stats.textContent = popup.stats;
+          body.append(stats);
+
+          if (popup.href) {
+            const link = document.createElement("a");
+            link.className = "location-result-action";
+            link.href = popup.href;
+            link.textContent = "View full place & gallery →";
+            body.append(link);
+          }
+
+          content.append(body);
+          marker.bindPopup(content, {
+            autoPan: false,
+            keepInView: false,
+            className: "explore-place-popup",
+          });
+          marker.openPopup();
+        }
       });
       const map = mapRef.current;
       if (fitToMarkers && !hasFittedMarkersRef.current && map && markerCoordinates.length) {
@@ -225,7 +302,7 @@ export default function MapCanvas({
     }
 
     void refreshMarkers();
-  }, [photos, activePhoto, fitToMarkers, ready]);
+  }, [photos, activePhoto, fitToMarkers, popup, ready]);
 
   useEffect(() => {
     if (!ready || !measurementLayerRef.current) return;

@@ -41,34 +41,50 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <h1>{isSignUp ? "Make room for\nmore memories." : "Your places,\nright where you left them."}</h1>
         <p className="auth-copy">
           {isSignUp
-            ? "Create a private archive for the places you want to remember."
+            ? "Choose a username and password to create your private archive. Email is optional."
             : "Sign in to pick up your personal place archive."}
         </p>
 
         {!config && (
           <div className="auth-message auth-setup-message">
             <strong>Connect your Supabase project to continue.</strong>
-            <span>Add the project URL and publishable/anon key to <code>.env.local</code>, then apply the SQL migration in <code>supabase/migrations</code>.</span>
+            <span>Add the project URL, publishable/anon key and server-only service-role key to <code>.env.local</code>, then apply the SQL migrations in <code>supabase/migrations</code>.</span>
           </div>
         )}
         {message && <p className="auth-message" role="status">{message}</p>}
 
         <form className="auth-form" action={isSignUp ? signUp : signIn}>
           <input type="hidden" name="returnTo" value={returnTo} />
-          {isSignUp && (
-            <label className="field-label">YOUR NAME
-              <input className="text-input" type="text" name="displayName" autoComplete="name" maxLength={80} placeholder="Alex Morgan" />
-            </label>
+          {isSignUp ? (
+            <>
+              <label className="field-label">USERNAME
+                <input className="text-input" type="text" name="username" autoComplete="username" minLength={3} maxLength={32} pattern="[A-Za-z0-9_]{3,32}" required placeholder="e.g. buck" />
+              </label>
+              <label className="field-label">PASSWORD
+                <input className="text-input" type="password" name="password" autoComplete="new-password" minLength={8} required placeholder="At least 8 characters" />
+              </label>
+              <label className="field-label">CONFIRM PASSWORD
+                <input className="text-input" type="password" name="confirmation" autoComplete="new-password" minLength={8} required placeholder="Enter your password again" />
+              </label>
+              <label className="field-label">EMAIL <span>(OPTIONAL)</span>
+                <input className="text-input" type="email" name="email" autoComplete="email" maxLength={320} placeholder="you@example.com" />
+              </label>
+              <p className="auth-privacy">Email is private contact information only. Without a recovery email, a forgotten password cannot currently be reset.</p>
+            </>
+          ) : (
+            <>
+              <label className="field-label">USERNAME
+                <input className="text-input" type="text" name="identifier" autoComplete="username" required placeholder="Your username" />
+                <span className="auth-field-hint">Existing accounts can still sign in with their email address.</span>
+              </label>
+              <label className="field-label">PASSWORD
+                <input className="text-input" type="password" name="password" autoComplete="current-password" minLength={8} required placeholder="Your password" />
+              </label>
+            </>
           )}
-          <label className="field-label">EMAIL ADDRESS
-            <input className="text-input" type="email" name="email" autoComplete="email" required placeholder="you@example.com" />
-          </label>
-          <label className="field-label">PASSWORD
-            <input className="text-input" type="password" name="password" autoComplete={isSignUp ? "new-password" : "current-password"} minLength={8} required placeholder="At least 8 characters" />
-          </label>
-          {!isSignUp && <Link className="auth-forgot" href="/forgot-password">Forgot password?</Link>}
+          {!isSignUp && <Link className="auth-forgot" href="/forgot-password">Forgot password? (email accounts)</Link>}
           <button className="primary-button auth-submit" type="submit">
-            {isSignUp ? "Create my account" : "Sign in to GeoArchive"} <span aria-hidden="true">→</span>
+            {isSignUp ? "Create account" : "Log in"} <span aria-hidden="true">→</span>
           </button>
         </form>
         <p className="auth-switch">

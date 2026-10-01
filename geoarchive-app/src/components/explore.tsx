@@ -11,7 +11,7 @@ import GisToolFab from "@/components/gis-tool-fab";
 import ThemeToggle from "@/components/theme-toggle";
 import { categoryColors, categoryIcons } from "@/lib/photo-style";
 import { createClient } from "@/lib/supabase/client";
-import { categories, type Category, type PhotoRecord } from "@/types/photo";
+import { categories, type Category, type PhotoRecord, type PlaceRecord } from "@/types/photo";
 import type { ReviewRecord } from "@/types/review";
 import type { ExternalLocation } from "@/types/location-search";
 
@@ -19,19 +19,20 @@ const MapCanvas = dynamic(() => import("@/components/map-canvas"), { ssr: false 
 
 type ExploreProps = {
   photos: PhotoRecord[];
+  places: PlaceRecord[];
   reviews: ReviewRecord[];
   viewerId: string | null;
   loadError: string;
 };
 
-export default function Explore({ photos, reviews: initialReviews, viewerId, loadError }: ExploreProps) {
+export default function Explore({ photos, places, reviews: initialReviews, viewerId, loadError }: ExploreProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<Category | "All">("All");
   const [activePhotoId, setActivePhotoId] = useState<string | null>(photos[0]?.id ?? null);
   const [reviews, setReviews] = useState(initialReviews);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(initialReviews.filter((review) => review.userId === viewerId).map((review) => [review.photoId, review.body])),
+    Object.fromEntries(initialReviews.filter((review) => review.userId === viewerId).map((review) => [review.placeId, review.body])),
   );
   const [reviewError, setReviewError] = useState("");
   const [reviewNotice, setReviewNotice] = useState("");
@@ -44,26 +45,55 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
   const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
   const [searchLocation, setSearchLocation] = useState<ExternalLocation | null>(null);
   const [copyNotice, setCopyNotice] = useState("");
+  const placeById = useMemo(() => new Map(places.map((place) => [place.id, place])), [places]);
 
   const visiblePhotos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return photos.filter((photo) =>
-      (categoryFilter === "All" || photo.category === categoryFilter) &&
-      (!normalized ||
-        `${photo.title} ${photo.description} ${photo.locationName} ${photo.category}`
-          .toLowerCase()
-          .includes(normalized)),
-    );
-  }, [photos, categoryFilter, query]);
-  const activePhoto = visiblePhotos.find((photo) => photo.id === activePhotoId) ?? null;
+    return photos.filter((photo) => {
+      const place = photo.placeId ? placeById.get(photo.placeId) : undefined;
+      const category = place?.category ?? photo.category;
+      const searchText = `${place?.name ?? ""} ${place?.description ?? ""} ${place?.locationName ?? ""} ${photo.title} ${photo.description} ${photo.locationName} ${category}`.toLowerCase();
+      return (categoryFilter === "All" || category === categoryFilter) &&
+        (!normalized || searchText.includes(normalized));
+    });
+  }, [photos, placeById, categoryFilter, query]);
+  const visiblePlacePhotos = useMemo(() => {
+    const byPlace = new Map<string, PhotoRecord>();
+    visiblePhotos.forEach((photo) => {
+      if (photo.placeId && !byPlace.has(photo.placeId)) byPlace.set(photo.placeId, photo);
+    });
+    return [...byPlace.values()];
+  }, [visiblePhotos]);
+  const totalPlaceCount = places.length;
+  const activePhoto = photos.find((photo) => photo.id === activePhotoId) ?? null;
+  const activePlace = activePhoto ? places.find((place) => place.id === activePhoto.placeId) ?? null : null;
   const activeReviews = activePhoto
-    ? reviews.filter((review) => review.photoId === activePhoto.id)
+    ? reviews.filter((review) => review.placeId === activePhoto.placeId)
     : [];
+  const activePopup = useMemo(() => {
+    if (!activePhoto || activePhoto.latitude === null || activePhoto.longitude === null) return null;
+    const category = activePlace?.category ?? activePhoto.category;
+    const popupPhotos = photos.filter((photo) => photo.placeId === activePhoto.placeId);
+    const popupReviews = reviews.filter((review) => review.placeId === activePhoto.placeId);
+    return {
+      photoId: activePhoto.id,
+      imageUrl: activePhoto.imageUrl,
+      category,
+      categoryIcon: categoryIcons[category],
+      categoryClass: categoryColors[category],
+      locationName: activePlace?.locationName || activePhoto.locationName || "Location not shared",
+      title: activePlace?.name ?? activePhoto.title,
+      placeDescription: activePlace?.description ?? null,
+      contributorNote: activePhoto.description || null,
+      stats: `${popupPhotos.length} photos · ${new Set([...popupPhotos.map((photo) => photo.userId), ...popupReviews.map((review) => review.userId)]).size} contributors · ${popupReviews.length} reviews`,
+      href: activePlace ? `/places/${activePlace.id}` : null,
+    };
+  }, [activePhoto, activePlace, photos, reviews]);
   const ownReview = viewerId
     ? activeReviews.find((review) => review.userId === viewerId) ?? null
     : null;
   const reviewDraft = activePhoto
-    ? reviewDrafts[activePhoto.id] ?? ownReview?.body ?? ""
+    ? reviewDrafts[activePhoto.placeId ?? activePhoto.id] ?? ownReview?.body ?? ""
     : "";
 
   function selectPhoto(photoId: string) {
@@ -91,9 +121,14 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
       : `/login?mode=signup&next=${encodeURIComponent(returnTo)}`);
   }
 
+  function contributeToPlace(placeId: string) {
+    const returnTo = `/?contributePlace=${encodeURIComponent(placeId)}`;
+    router.push(viewerId ? returnTo : `/login?mode=signup&next=${encodeURIComponent(returnTo)}`);
+  }
+
   function updateReviewDraft(body: string) {
     if (!activePhoto) return;
-    setReviewDrafts((current) => ({ ...current, [activePhoto.id]: body }));
+    setReviewDrafts((current) => ({ ...current, [activePhoto.placeId ?? activePhoto.id]: body }));
   }
 
   function locateMe() {
@@ -152,17 +187,21 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
     setReviewError("");
     setReviewNotice("");
     try {
+      if (!activePhoto.placeId) {
+        setReviewError("This photo is not connected to a GeoArchive place yet.");
+        return;
+      }
       const result = ownReview
         ? await supabase
             .from("reviews")
             .update({ body, updated_at: new Date().toISOString() })
             .eq("id", ownReview.id)
-            .select("id,photo_id,user_id,body,created_at,updated_at")
+            .select("id,place_id,contribution_id,photo_id,user_id,body,created_at,updated_at")
             .single()
         : await supabase
             .from("reviews")
-            .insert({ photo_id: activePhoto.id, user_id: viewerId, body })
-            .select("id,photo_id,user_id,body,created_at,updated_at")
+            .insert({ place_id: activePhoto.placeId, user_id: viewerId, body })
+            .select("id,place_id,contribution_id,photo_id,user_id,body,created_at,updated_at")
             .single();
 
       if (result.error) {
@@ -172,6 +211,7 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
 
       const savedReview: ReviewRecord = {
         id: result.data.id,
+        placeId: result.data.place_id,
         photoId: result.data.photo_id,
         userId: result.data.user_id,
         body: result.data.body,
@@ -241,7 +281,7 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
           <p>Real places, seen and shared by the people who stopped there. A small heads-up before you make the trip.</p>
         </div>
         <div className="explore-hero-sticker" aria-hidden="true">↗</div>
-        <div className="explore-total"><strong>{photos.length}</strong><span>shared {photos.length === 1 ? "place" : "places"}</span></div>
+        <div className="explore-total"><strong>{totalPlaceCount}</strong><span>shared {totalPlaceCount === 1 ? "place" : "places"}</span></div>
       </section>
 
       <section className="explore-layout">
@@ -263,24 +303,32 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
           </div>
           {loadError && <p className="dashboard-notice" role="status">{loadError}</p>}
           <div className="explore-place-list">
-            {visiblePhotos.map((photo) => (
-              <button className={`explore-place-card${activePhotoId === photo.id ? " explore-place-active" : ""}`} key={photo.id} type="button" onClick={() => selectPhoto(photo.id)}>
+            {visiblePlacePhotos.map((photo) => {
+              const place = photo.placeId ? placeById.get(photo.placeId) : undefined;
+              const photosAtPlace = photos.filter((item) => item.placeId === photo.placeId);
+              const reviewsAtPlace = reviews.filter((item) => item.placeId === photo.placeId);
+              const contributors = new Set([
+                ...photosAtPlace.map((item) => item.userId),
+                ...reviewsAtPlace.map((item) => item.userId),
+              ]);
+              return (
+              <button className={`explore-place-card${activePhoto?.placeId === photo.placeId ? " explore-place-active" : ""}`} key={photo.placeId ?? photo.id} type="button" onClick={() => selectPhoto(photo.id)}>
                 {photo.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img className="explore-place-thumb" src={photo.imageUrl} alt="" />
                 ) : <span className="explore-place-thumb explore-place-placeholder"><Camera size={18} /></span>}
                 <span className="explore-place-copy">
-                  <span className="explore-place-category">{photo.category.toUpperCase()}</span>
-                  <strong>{photo.title}</strong>
-                  <span className="explore-place-location"><MapPin size={11} />{photo.locationName || "Location not shared"}</span>
-                  {photo.description && <span className="explore-place-note">{photo.description}</span>}
-                  <span className="explore-place-review-count"><MessageSquare size={11} />{reviews.filter((review) => review.photoId === photo.id).length} reviews</span>
+                  <span className="explore-place-category">{(place?.category ?? photo.category).toUpperCase()}</span>
+                  <strong>{place?.name ?? photo.title}</strong>
+                  <span className="explore-place-location"><MapPin size={11} />{place?.locationName || photo.locationName || "Location not shared"}</span>
+                  <span className="explore-place-review-count"><MessageSquare size={11} />{reviewsAtPlace.length} reviews · {photosAtPlace.length} photos · {contributors.size} contributors</span>
                 </span>
-                <span className={`explore-place-mark sticker-${categoryColors[photo.category]}`}>{categoryIcons[photo.category]}</span>
+                <span className={`explore-place-mark sticker-${categoryColors[place?.category ?? photo.category]}`}>{categoryIcons[place?.category ?? photo.category]}</span>
               </button>
-            ))}
+              );
+            })}
             {visiblePhotos.length === 0 && (
-              <div className="empty-state"><Search size={19} /><strong>{photos.length ? "No places match that search." : "The field guide is just getting started."}</strong><span>{photos.length ? "Try another phrase or category." : "When someone shares a public place, it will show up here."}</span></div>
+              <div className="empty-state"><Search size={19} /><strong>{places.length ? "No places match that search." : "The field guide is just getting started."}</strong><span>{places.length ? "Try another phrase or category." : "When someone shares a public place, it will show up here."}</span></div>
             )}
           </div>
         </aside>
@@ -288,23 +336,24 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
         <section className="explore-map-panel">
           <div className="explore-map-heading">
             <div><p className="eyebrow">LOOK AROUND</p><h2>Places on the map.</h2></div>
-            <span className="explore-map-count">{visiblePhotos.length} {visiblePhotos.length === 1 ? "place" : "places"}</span>
+            <span className="explore-map-count">{visiblePlacePhotos.length} {visiblePlacePhotos.length === 1 ? "place" : "places"}</span>
           </div>
           <LocationSearch
             photos={photos}
+            places={places}
             onSelect={selectSearchLocation}
-            onOpenArchived={(photo) => {
-              selectPhoto(photo.id);
-              if (photo.latitude !== null && photo.longitude !== null) {
-                setMapCenter({ latitude: photo.latitude, longitude: photo.longitude });
-              }
+            onOpenArchived={(location) => { if (location.placeId) router.push(`/places/${location.placeId}`); }}
+            onContribute={(location) => { if (location.placeId) contributeToPlace(location.placeId); }}
+            onArchive={(location) => {
+              if (location.placeId) contributeToPlace(location.placeId);
+              else archiveLocation(location);
             }}
-            onArchive={archiveLocation}
           />
           <div className="map-workspace explore-map">
             <MapCanvas
-              photos={visiblePhotos}
+              photos={visiblePlacePhotos}
               activePhoto={activePhotoId}
+              popup={activePopup}
               viewCenter={mapCenter ?? userLocation}
               userLocation={userLocation}
               droppedPin={droppedPin}
@@ -319,25 +368,10 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
                 setCopyNotice("");
               }}
             />
-            <div className="map-top-left"><div className="map-count-pill"><span className="count-pin"><MapPin size={13} fill="currentColor" /></span>{visiblePhotos.filter((photo) => photo.latitude !== null).length}<span>places pinned</span></div></div>
+            <div className="map-top-left"><div className="map-count-pill"><span className="count-pin"><MapPin size={13} fill="currentColor" /></span>{visiblePlacePhotos.filter((photo) => photo.latitude !== null).length}<span>places pinned</span></div></div>
             <div className="explore-map-controls">
               <button className="map-control" type="button" onClick={locateMe} disabled={isLocating} aria-label={isLocating ? "Finding your location" : "Center map on my location"} title="Center map on my location"><LocateFixed size={17} /></button>
             </div>
-            {activePhoto && (
-              <article className="explore-map-card">
-                {activePhoto.imageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={activePhoto.imageUrl} alt="" />
-                )}
-                <div className="explore-map-card-content">
-                  <span className={`place-category sticker-${categoryColors[activePhoto.category]}`}>{categoryIcons[activePhoto.category]}&nbsp; {activePhoto.category}</span>
-                  <p className="place-location"><MapPin size={12} />{activePhoto.locationName || "Location not shared"}</p>
-                  <h3>{activePhoto.title}</h3>
-                  {activePhoto.description && <p className="explore-expectation">{activePhoto.description}</p>}
-                  <p className="explore-contributor">Shared by a GeoArchive contributor · {new Date(activePhoto.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                </div>
-              </article>
-            )}
             <div className="explore-map-note"><ShieldCheck size={13} />Community notes are personal experiences, not guarantees. Conditions can change.</div>
           </div>
           <div className="explore-coordinate-readout">
@@ -350,14 +384,14 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
           {activePhoto && (
             <section className="explore-reviews" aria-labelledby="reviews-heading">
               <div className="explore-reviews-heading">
-                <div><p className="eyebrow"><MessageSquare size={12} /> COMMUNITY EXPERIENCES</p><h2 id="reviews-heading">Reviews for {activePhoto.title}</h2></div>
+                <div><p className="eyebrow"><MessageSquare size={12} /> COMMUNITY EXPERIENCES</p><h2 id="reviews-heading">Reviews for {activePlace?.name ?? activePhoto.title}</h2></div>
                 <span className="explore-review-total">{activeReviews.length} {activeReviews.length === 1 ? "review" : "reviews"}</span>
               </div>
               {activeReviews.length ? (
                 <div className="explore-review-list">
                   {activeReviews.map((review) => (
                     <article className="explore-review" key={review.id}>
-                      <div className="explore-review-meta"><strong>{review.userId === viewerId ? "You" : "GeoArchive member"}</strong><time dateTime={review.updatedAt}>{new Date(review.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{review.updatedAt !== review.createdAt ? " · edited" : ""}</time></div>
+                      <div className="explore-review-meta"><strong>{review.userId === viewerId ? "You" : review.username ? `@${review.username}` : review.displayName || "GeoArchive member"}</strong><time dateTime={review.updatedAt}>{new Date(review.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{review.updatedAt !== review.createdAt ? " · edited" : ""}</time></div>
                       <p>{review.body}</p>
                     </article>
                   ))}
@@ -382,6 +416,7 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
                   <Link className="pill-button" href="/login?mode=signup">Sign in to review <ArrowRight size={13} /></Link>
                 </div>
               )}
+              {activePlace && <button className="pill-button" type="button" onClick={() => contributeToPlace(activePlace.id)}>Add photos to this place <ArrowRight size={13} /></button>}
             </section>
           )}
           <div className="explore-privacy-note"><span className="sticker sticker-sun">✳</span><span><strong>Shared with care.</strong> Only places their contributor chose to make public appear here. Approximate pins are rounded for privacy.</span></div>

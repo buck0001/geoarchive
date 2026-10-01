@@ -2,13 +2,15 @@
 
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Archive, ExternalLink, LoaderCircle, MapPin, Search } from "lucide-react";
-import type { PhotoRecord } from "@/types/photo";
+import type { PhotoRecord, PlaceRecord } from "@/types/photo";
 import type { ExternalLocation, LocationCoordinate, NominatimResult } from "@/types/location-search";
 
 type LocationSearchProps = {
   photos: PhotoRecord[];
+  places?: PlaceRecord[];
   onSelect: (location: ExternalLocation) => void;
-  onOpenArchived: (photo: PhotoRecord) => void;
+  onOpenArchived: (location: ExternalLocation) => void;
+  onContribute: (location: ExternalLocation) => void;
   onArchive: (location: ExternalLocation) => void;
 };
 
@@ -36,20 +38,28 @@ function distanceMeters(a: LocationCoordinate, b: LocationCoordinate) {
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
-function matchArchivedPhoto(location: LocationCoordinate, name: string, photos: PhotoRecord[]) {
-  const normalizedName = name.toLowerCase().trim();
-  return photos.find((photo) => {
-    if (photo.latitude === null || photo.longitude === null) return false;
-    if (distanceMeters(location, { latitude: photo.latitude, longitude: photo.longitude }) <= 100) return true;
-    const archiveName = photo.locationName.toLowerCase().trim();
-    return Boolean(archiveName && (archiveName === normalizedName || normalizedName.includes(archiveName)));
-  }) ?? null;
+function matchArchivedPlace(location: LocationCoordinate, places: PlaceRecord[]) {
+  return places.find((place) =>
+    place.latitude !== null &&
+    place.longitude !== null &&
+    distanceMeters(location, { latitude: place.latitude, longitude: place.longitude }) <= 100,
+  ) ?? null;
+}
+
+function matchArchivedPhoto(location: LocationCoordinate, photos: PhotoRecord[]) {
+  return photos.find((photo) =>
+    photo.latitude !== null &&
+    photo.longitude !== null &&
+    distanceMeters(location, { latitude: photo.latitude, longitude: photo.longitude }) <= 100,
+  ) ?? null;
 }
 
 export default function LocationSearch({
   photos,
+  places = [],
   onSelect,
   onOpenArchived,
+  onContribute,
   onArchive,
 }: LocationSearchProps) {
   const [query, setQuery] = useState("");
@@ -59,8 +69,8 @@ export default function LocationSearch({
   const requestController = useRef<AbortController | null>(null);
   const requestId = useRef(0);
 
-  const archivedResults = useMemo(() => results.filter((result) => result.archivedPhoto), [results]);
-  const externalResults = useMemo(() => results.filter((result) => !result.archivedPhoto), [results]);
+  const archivedResults = useMemo(() => results.filter((result) => result.archivedPlace || result.archivedPhoto), [results]);
+  const externalResults = useMemo(() => results.filter((result) => !result.archivedPlace && !result.archivedPhoto), [results]);
 
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -81,13 +91,18 @@ export default function LocationSearch({
       const coordinates = parseLatitudeLongitude(searchText);
       if (coordinates) {
         const name = `Coordinates ${coordinates.latitude.toFixed(6)}, ${coordinates.longitude.toFixed(6)}`;
+        const archivedPlace = matchArchivedPlace(coordinates, places);
+        const archivedPhoto = photos.find((photo) => photo.placeId === archivedPlace?.id) ??
+          matchArchivedPhoto(coordinates, photos);
         setResults([{
           ...coordinates,
           id: `coordinates-${coordinates.latitude}-${coordinates.longitude}`,
           name,
           address: "WGS 84 latitude, longitude",
           source: "coordinates",
-          archivedPhoto: matchArchivedPhoto(coordinates, name, photos),
+          archivedPhoto,
+          placeId: archivedPlace?.id ?? archivedPhoto?.placeId ?? null,
+          archivedPlace,
         }]);
         setIsSearching(false);
         return;
@@ -99,23 +114,28 @@ export default function LocationSearch({
       });
       const payload = await response.json() as { results?: NominatimResult[]; error?: string };
       if (!response.ok) throw new Error(payload.error ?? `Place search failed (HTTP ${response.status}). Try again shortly.`);
-      const places = payload.results ?? [];
+      const providerResults = payload.results ?? [];
       if (requestId.current !== currentRequest) return;
-      setResults(places.map((place) => {
-        const latitude = Number(place.lat);
-        const longitude = Number(place.lon);
-        const name = place.name || place.display_name.split(",")[0] || "Unnamed location";
+      setResults(providerResults.map((result) => {
+        const latitude = Number(result.lat);
+        const longitude = Number(result.lon);
+        const name = result.name || result.display_name.split(",")[0] || "Unnamed location";
+        const archivedPlace = matchArchivedPlace({ latitude, longitude }, places);
+        const archivedPhoto = photos.find((photo) => photo.placeId === archivedPlace?.id) ??
+          matchArchivedPhoto({ latitude, longitude }, photos);
         return {
-          id: `nominatim-${place.place_id}`,
+          id: `nominatim-${result.place_id}`,
           latitude,
           longitude,
           name,
-          address: place.display_name,
+          address: result.display_name,
           source: "place-search" as const,
-          archivedPhoto: matchArchivedPhoto({ latitude, longitude }, name, photos),
+          archivedPhoto,
+          placeId: archivedPlace?.id ?? archivedPhoto?.placeId ?? null,
+          archivedPlace,
         };
       }));
-      if (!places.length) setError("No worldwide place-search results found. Try a nearby city, landmark, or fuller address.");
+      if (!providerResults.length) setError("No worldwide place-search results found. Try a nearby city, landmark, or fuller address.");
     } catch (searchError) {
       if (searchError instanceof DOMException && searchError.name === "AbortError") return;
       setError(searchError instanceof Error ? searchError.message : "Could not search for that location.");
@@ -136,11 +156,14 @@ export default function LocationSearch({
           <span><strong>{location.name}</strong><small>{location.address}</small></span>
           <ArrowRight size={13} />
         </button>
-        <span className={`location-result-badge${location.archivedPhoto ? " location-result-archived" : ""}`}>
-          {location.archivedPhoto ? <><Archive size={10} /> ARCHIVED IN GEOARCHIVE</> : <><ExternalLink size={10} /> EXTERNAL LOCATION</>}
+        <span className={`location-result-badge${location.archivedPlace || location.archivedPhoto ? " location-result-archived" : ""}`}>
+          {location.archivedPlace || location.archivedPhoto ? <><Archive size={10} /> ARCHIVED IN GEOARCHIVE</> : <><ExternalLink size={10} /> EXTERNAL LOCATION</>}
         </span>
-        {location.archivedPhoto
-          ? <button className="location-result-action" type="button" onClick={() => onOpenArchived(location.archivedPhoto!)}>View photos, reviews &amp; details</button>
+        {(location.archivedPlace || location.archivedPhoto) && location.placeId
+          ? <>
+            <button className="location-result-action" type="button" onClick={() => onOpenArchived(location)}>View shared place</button>
+            <button className="location-result-action" type="button" onClick={() => onContribute(location)}>Add photos</button>
+          </>
           : <button className="location-result-action" type="button" onClick={() => onArchive(location)}>Archive this place</button>}
       </article>
     );

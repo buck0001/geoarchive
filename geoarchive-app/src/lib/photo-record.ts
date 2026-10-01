@@ -4,6 +4,7 @@ import type { PhotoRecord } from "@/types/photo";
 export function toPhotoRecord(row: PhotoRow, imageUrl: string): PhotoRecord {
   return {
     id: row.id,
+    placeId: row.place_id,
     userId: row.user_id,
     title: row.title,
     description: row.description,
