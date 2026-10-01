@@ -3,6 +3,9 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { area as turfArea } from "@turf/area";
+import { distance as turfDistance } from "@turf/distance";
+import { point as turfPoint, polygon as turfPolygon } from "@turf/helpers";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -11,6 +14,7 @@ import {
   ChevronDown,
   CircleHelp,
   Compass,
+  Copy,
   Crosshair,
   Expand,
   Eye,
@@ -27,12 +31,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { categories, type Category, type PhotoRecord } from "@/types/photo";
 import { createClient } from "@/lib/supabase/client";
 import ThemeToggle from "@/components/theme-toggle";
 import ContactLinks from "@/components/contact-links";
+import LocationSearch from "@/components/location-search";
+import GisToolFab from "@/components/gis-tool-fab";
 import { categoryColors, categoryIcons } from "@/lib/photo-style";
+import type { ExternalLocation } from "@/types/location-search";
 
 const MapCanvas = dynamic(() => import("@/components/map-canvas"), { ssr: false });
 
@@ -44,46 +51,53 @@ type DashboardProps = {
   userEmail: string;
   displayName: string;
   loadError: string;
+  initialArchive?: { latitude: number; longitude: number; name: string } | null;
 };
 
 function distanceBetween(a: Coordinates, b: Coordinates) {
-  const radians = (degrees: number) => (degrees * Math.PI) / 180;
-  const dLat = radians(b.latitude - a.latitude);
-  const dLon = radians(b.longitude - a.longitude);
-  const lat1 = radians(a.latitude);
-  const lat2 = radians(b.latitude);
-  const value =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 6_371_000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+  return turfDistance(
+    turfPoint([a.longitude, a.latitude]),
+    turfPoint([b.longitude, b.latitude]),
+    { units: "meters" },
+  );
 }
 
-export default function Dashboard({ initialPhotos, userId, userEmail, displayName, loadError }: DashboardProps) {
+export default function Dashboard({ initialPhotos, userId, userEmail, displayName, loadError, initialArchive = null }: DashboardProps) {
   const router = useRouter();
   const [photos, setPhotos] = useState<PhotoRecord[]>(initialPhotos);
   const [activePhotoId, setActivePhotoId] = useState<string | null>(initialPhotos[0]?.id ?? null);
   const [categoryFilter, setCategoryFilter] = useState<Category | "All">("All");
   const [query, setQuery] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [locationMode, setLocationMode] = useState<"none" | "current" | "manual">("none");
+  const [modalOpen, setModalOpen] = useState(Boolean(initialArchive));
+  const [titleDraft, setTitleDraft] = useState(initialArchive?.name ?? "");
+  const [locationNameDraft, setLocationNameDraft] = useState(initialArchive?.name ?? "");
+  const [locationMode, setLocationMode] = useState<"none" | "current" | "manual">(initialArchive ? "manual" : "none");
   const [pickingLocation, setPickingLocation] = useState(false);
-  const [manualLocation, setManualLocation] = useState<Coordinates | null>(null);
+  const [manualLocation, setManualLocation] = useState<Coordinates | null>(
+    initialArchive ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude } : null,
+  );
   const [geolocationError, setGeolocationError] = useState("");
   const [toolMode, setToolMode] = useState<ToolMode>("browse");
   const [measurePoints, setMeasurePoints] = useState<Coordinates[]>([]);
   const [nearbyCenter, setNearbyCenter] = useState<Coordinates | null>(null);
   const [nearbyPhotoIds, setNearbyPhotoIds] = useState<string[] | null>(null);
   const [radius, setRadius] = useState(1000);
-  const [mapCenter, setMapCenter] = useState<Coordinates | null>(null);
+  const [mapCenter, setMapCenter] = useState<Coordinates | null>(
+    initialArchive ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude } : null,
+  );
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
-  const [coordinates, setCoordinates] = useState<Coordinates>({
-    latitude: 0,
-    longitude: 20,
-  });
+  const [droppedPin, setDroppedPin] = useState<Coordinates | null>(null);
+  const [searchLocation, setSearchLocation] = useState<ExternalLocation | null>(null);
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
+  const [coordinatesCopied, setCoordinatesCopied] = useState(false);
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [notice, setNotice] = useState(loadError);
   const imageInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (initialArchive) router.replace("/", { scroll: false });
+  }, [initialArchive, router]);
 
   const visiblePhotos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -103,23 +117,12 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
   }, [photos, categoryFilter, query, toolMode, nearbyCenter, nearbyPhotoIds]);
 
   const activePhoto = photos.find((photo) => photo.id === activePhotoId) ?? null;
-  const areaSquareMeters =
-    measurePoints.length > 2
-      ? Math.abs(
-          measurePoints.reduce((sum, point, index) => {
-            const next = measurePoints[(index + 1) % measurePoints.length];
-            return (
-              sum +
-              (((next.longitude - point.longitude) * Math.PI) / 180 *
-                (2 +
-                  Math.sin((point.latitude * Math.PI) / 180) +
-                  Math.sin((next.latitude * Math.PI) / 180))) /
-                2
-            );
-          }, 0),
-        ) *
-        6_371_000 ** 2
-      : 0;
+  const areaSquareMeters = measurePoints.length > 2
+    ? turfArea(turfPolygon([[
+        ...measurePoints.map((point) => [point.longitude, point.latitude] as [number, number]),
+        [measurePoints[0].longitude, measurePoints[0].latitude],
+      ]]))
+    : 0;
   const lineMeters = measurePoints.reduce(
     (total, point, index) =>
       index === 0 ? total : total + distanceBetween(measurePoints[index - 1], point),
@@ -162,6 +165,8 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
 
   function handleMapPick(point: Coordinates) {
     setCoordinates(point);
+    setCoordinatesCopied(false);
+    setDroppedPin(point);
     if (pickingLocation) {
       setManualLocation(point);
       setLocationMode("manual");
@@ -178,6 +183,25 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
     }
   }
 
+  function selectSearchLocation(location: ExternalLocation) {
+    setSearchLocation(location);
+    setMapCenter({ latitude: location.latitude, longitude: location.longitude });
+    setActivePhotoId(location.archivedPhoto?.id ?? null);
+    setCoordinates({ latitude: location.latitude, longitude: location.longitude });
+    setDroppedPin(null);
+  }
+
+  function startArchive(location: { latitude: number; longitude: number; name: string }) {
+    setSearchLocation(null);
+    setMapCenter({ latitude: location.latitude, longitude: location.longitude });
+    setManualLocation({ latitude: location.latitude, longitude: location.longitude });
+    setLocationMode("manual");
+    setTitleDraft(location.name.slice(0, 100));
+    setLocationNameDraft(location.name);
+    setFormError("");
+    setModalOpen(true);
+  }
+
   function locateCurrentLocation() {
     setGeolocationError("");
     if (!navigator.geolocation) {
@@ -189,6 +213,8 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
         const point = { latitude: coords.latitude, longitude: coords.longitude };
         setManualLocation(point);
         setCoordinates(point);
+        setCoordinatesCopied(false);
+        setDroppedPin(point);
         setMapCenter(point);
         setUserLocation(point);
       },
@@ -211,6 +237,8 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
       ({ coords }) => {
         const point = { latitude: coords.latitude, longitude: coords.longitude };
         setCoordinates(point);
+        setCoordinatesCopied(false);
+        setDroppedPin(point);
         setMapCenter(point);
         setUserLocation(point);
       },
@@ -223,6 +251,18 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
     );
   }
 
+  async function copyCoordinates() {
+    if (!coordinates) return;
+    try {
+      await navigator.clipboard.writeText(
+        `${coordinates.latitude.toFixed(6)}, ${coordinates.longitude.toFixed(6)}`,
+      );
+      setCoordinatesCopied(true);
+    } catch (error) {
+      setNotice(`Could not copy coordinates: ${error instanceof Error ? error.message : "Clipboard unavailable."}`);
+    }
+  }
+
   async function savePhoto(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -230,6 +270,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
     const form = new FormData(formElement);
     const file = form.get("image");
     const title = String(form.get("title") ?? "").trim();
+    const submittedLocationName = String(form.get("locationName") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
     const category = String(form.get("category") ?? "Other") as Category;
     const visibility = String(form.get("visibility") ?? "private") as "private" | "public";
@@ -308,7 +349,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
           image_path: imagePath,
           latitude,
           longitude,
-          location_name: point ? `${latitude?.toFixed(4)}, ${longitude?.toFixed(4)}` : "",
+          location_name: point ? submittedLocationName || `${latitude?.toFixed(4)}, ${longitude?.toFixed(4)}` : "",
           location_precision: locationPrecision,
           visibility,
         })
@@ -332,7 +373,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
         imagePath,
         latitude,
         longitude,
-        locationName: point ? `${latitude?.toFixed(4)}, ${longitude?.toFixed(4)}` : "",
+        locationName: point ? submittedLocationName || `${latitude?.toFixed(4)}, ${longitude?.toFixed(4)}` : "",
         locationPrecision,
         visibility,
         createdAt: inserted.created_at,
@@ -442,6 +483,8 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
             setLocationMode("none");
             setManualLocation(null);
             setPickingLocation(false);
+            setTitleDraft("");
+            setLocationNameDraft("");
             setModalOpen(true);
           }}>
             <Plus size={17} strokeWidth={2.5} /> Add a place <ArrowRight size={16} />
@@ -521,12 +564,21 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
           </div>
           {notice && <p className="dashboard-notice" role="status">{notice}</p>}
 
+          <LocationSearch
+            photos={photos}
+            onSelect={selectSearchLocation}
+            onOpenArchived={(photo) => setActivePhotoId(photo.id)}
+            onArchive={startArchive}
+          />
+
           <div className="map-workspace">
             <MapCanvas
               photos={visiblePhotos}
               activePhoto={activePhotoId}
               viewCenter={mapCenter}
+              searchLocation={searchLocation}
               userLocation={userLocation}
+              droppedPin={droppedPin}
               measurementPoints={measurePoints}
               measurementMode={toolMode === "distance" || toolMode === "area" ? toolMode : null}
               onSelectPhoto={(photo) => setActivePhotoId(photo.id)}
@@ -589,7 +641,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
             )}
 
             <div className="map-bottom-left">
-              <div className="coordinate-readout"><span className="coordinate-dot" /> {coordinates.latitude.toFixed(4)}°,&nbsp; {coordinates.longitude.toFixed(4)}° <span className="coordinate-crs">WGS84</span></div>
+              <div className="coordinate-readout"><span className="coordinate-dot" /> {coordinates ? <>{coordinates.latitude.toFixed(6)}°,&nbsp; {coordinates.longitude.toFixed(6)}° <span className="coordinate-crs">WGS84</span><button className="coordinate-copy-button" type="button" onClick={() => void copyCoordinates()} aria-label="Copy map coordinates"><Copy size={12} />{coordinatesCopied ? "Copied" : "Copy"}</button></> : "Click anywhere on the map to inspect coordinates"}</div>
             </div>
             <div className="map-bottom-right">
               <button className={`map-tool${toolMode === "distance" ? " map-tool-active" : ""}`} type="button" onClick={() => setTool(toolMode === "distance" ? "browse" : "distance")} aria-label="Measure distance"><Ruler size={16} /></button>
@@ -634,6 +686,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
       </section>
 
       <footer className="page-footer"><span>MADE FOR THE PLACES THAT STAY WITH YOU <span className="footer-star">✳</span></span><ContactLinks /><span>GEOARCHIVE&nbsp; © 2026</span></footer>
+      <GisToolFab />
 
       {modalOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
@@ -657,7 +710,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
                 }} />
               </button>
               <label className="field-label">WHAT SHOULD WE CALL IT?
-                <input className="text-input" name="title" placeholder="e.g. The road home" maxLength={100} required />
+                <input className="text-input" name="title" placeholder="e.g. The road home" maxLength={100} required value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} />
               </label>
               <div className="form-row">
                 <label className="field-label">A LITTLE NOTE
@@ -677,6 +730,10 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
                   <button className={`location-option${locationMode === "manual" ? " location-option-active" : ""}`} type="button" onClick={() => setLocationMode("manual")}><MapPin size={14} /> Pick on map</button>
                 </div>
                 {locationMode === "manual" && (
+                  <>
+                  <label className="field-label">PLACE NAME OR ADDRESS
+                    <input className="text-input" name="locationName" maxLength={200} placeholder="Optional place name" value={locationNameDraft} onChange={(event) => setLocationNameDraft(event.target.value)} />
+                  </label>
                   <button className="location-hint" type="button" onClick={() => {
                     if (!manualLocation) {
                       setPickingLocation(true);
@@ -686,6 +743,7 @@ export default function Dashboard({ initialPhotos, userId, userEmail, displayNam
                   }}>
                     {manualLocation ? <><Check size={13} /> {manualLocation.latitude.toFixed(4)}, {manualLocation.longitude.toFixed(4)} selected</> : <>Tap anywhere on the map to drop a pin <ArrowRight size={13} /></>}
                   </button>
+                  </>
                 )}
                 {geolocationError && <p className="form-error">{geolocationError}</p>}
                 {locationMode !== "none" && (

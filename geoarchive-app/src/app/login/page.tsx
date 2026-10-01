@@ -4,22 +4,24 @@ import { signIn, signUp } from "@/app/auth/actions";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseConfig } from "@/lib/supabase/config";
 import ThemeToggle from "@/components/theme-toggle";
+import { safeReturnTo } from "@/lib/safe-return-to";
 
 type LoginPageProps = {
-  searchParams: Promise<{ mode?: string; message?: string }>;
+  searchParams: Promise<{ mode?: string; message?: string; next?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const [{ mode, message }, supabase, config] = await Promise.all([
+  const [{ mode, message, next }, supabase, config] = await Promise.all([
     searchParams,
     createClient(),
     Promise.resolve(getSupabaseConfig()),
   ]);
   const isSignUp = mode === "signup";
+  const returnTo = safeReturnTo(next);
 
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) redirect("/");
+    if (user) redirect(returnTo);
   }
 
   return (
@@ -52,6 +54,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         {message && <p className="auth-message" role="status">{message}</p>}
 
         <form className="auth-form" action={isSignUp ? signUp : signIn}>
+          <input type="hidden" name="returnTo" value={returnTo} />
           {isSignUp && (
             <label className="field-label">YOUR NAME
               <input className="text-input" type="text" name="displayName" autoComplete="name" maxLength={80} placeholder="Alex Morgan" />
@@ -70,7 +73,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </form>
         <p className="auth-switch">
           {isSignUp ? "Already have an account?" : "New to GeoArchive?"}{" "}
-          <Link href={isSignUp ? "/login" : "/login?mode=signup"}>{isSignUp ? "Sign in" : "Create an account"}</Link>
+          <Link href={`${isSignUp ? "/login" : "/login?mode=signup"}${returnTo !== "/" ? `${isSignUp ? "?" : "&"}next=${encodeURIComponent(returnTo)}` : ""}`}>{isSignUp ? "Sign in" : "Create an account"}</Link>
         </p>
         <p className="auth-privacy">Your archive is private. Location is optional, always.</p>
         <p className="auth-switch"><Link href="/explore">Browse public places →</Link></p>

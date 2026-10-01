@@ -43,6 +43,9 @@ The publishable/anon key is intended for browser use. Never put a Supabase secre
 - Anyone can read reviews on public places; posting, editing, or deleting a review requires signing in. Each account can keep one text review per place.
 - Interactive Esri World Street Map with English place labels, photo markers, search, category filters, and signed image URLs.
 - Maps start centered on Africa. A person’s device location is only requested after they choose the location button or the current-location option when adding a place; it is never collected automatically.
+- Click any map to drop a temporary coordinate pin and read/copy its WGS 84 coordinates. Coordinates are not saved unless separately used while adding a place.
+- Search for worldwide places, addresses, landmarks, or latitude/longitude independently of the GeoArchive archive. OpenStreetMap Nominatim results are temporary; matching archived places are shown separately, and external places can be sent to the existing add-place workflow. Search is explicit-submit and rate-limited; attribution is displayed.
+- The GIS Coordinate Tool is available without an account on its own `/gis` page, linked by the labeled compass button from both the public Explore page and signed-in journal. It recognizes labeled latitude/longitude, Easting/Northing, X/Y, and bulk point rows. It supports WGS 84 and UTM zones 31N/32N, requires a CRS for projected values, previews interpretations before plotting, and calculates line/boundary lengths and areas.
 - Upload to Supabase Storage followed by a metadata insert, with rollback cleanup on failure.
 - Delete owned records and their stored images.
 - WGS84 coordinate display, distance/area tools, and an RLS-aware `nearby_photos` database function.

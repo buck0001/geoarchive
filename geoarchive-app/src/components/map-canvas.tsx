@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { PhotoRecord } from "@/types/photo";
+import type { ExternalLocation } from "@/types/location-search";
 
 type Coordinates = { latitude: number; longitude: number };
 
@@ -9,8 +10,13 @@ type MapCanvasProps = {
   photos: PhotoRecord[];
   activePhoto: string | null;
   fitToMarkers?: boolean;
+  fitToBoundary?: boolean;
   viewCenter?: Coordinates | null;
+  viewZoom?: number;
+  searchLocation?: ExternalLocation | null;
   userLocation?: Coordinates | null;
+  droppedPin?: Coordinates | null;
+  boundaryPoints?: Array<Coordinates & { label?: string }>;
   measurementPoints: Coordinates[];
   measurementMode: "distance" | "area" | null;
   onSelectPhoto: (photo: PhotoRecord) => void;
@@ -22,8 +28,13 @@ export default function MapCanvas({
   photos,
   activePhoto,
   fitToMarkers = false,
+  fitToBoundary = false,
   viewCenter = null,
+  viewZoom = 12,
+  searchLocation = null,
   userLocation = null,
+  droppedPin = null,
+  boundaryPoints = [],
   measurementPoints,
   measurementMode,
   onSelectPhoto,
@@ -34,6 +45,8 @@ export default function MapCanvas({
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const markersRef = useRef<import("leaflet").LayerGroup | null>(null);
   const userLocationLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const droppedPinLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const searchLocationLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const measurementLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const hasFittedMarkersRef = useRef(false);
   const callbacksRef = useRef({ onSelectPhoto, onMapPick, onCoordinatesChange });
@@ -69,6 +82,8 @@ export default function MapCanvas({
       leaflet.control.zoom({ position: "bottomright" }).addTo(map);
       const markerLayer = leaflet.layerGroup().addTo(map);
       const userLocationLayer = leaflet.layerGroup().addTo(map);
+      const droppedPinLayer = leaflet.layerGroup().addTo(map);
+      const searchLocationLayer = leaflet.layerGroup().addTo(map);
       const measurementLayer = leaflet.layerGroup().addTo(map);
       map.on("click", (event) => {
         const coordinates = {
@@ -82,6 +97,8 @@ export default function MapCanvas({
       mapRef.current = map;
       markersRef.current = markerLayer;
       userLocationLayerRef.current = userLocationLayer;
+      droppedPinLayerRef.current = droppedPinLayer;
+      searchLocationLayerRef.current = searchLocationLayer;
       measurementLayerRef.current = measurementLayer;
       setReady(true);
     }
@@ -94,14 +111,61 @@ export default function MapCanvas({
       mapRef.current = null;
       markersRef.current = null;
       userLocationLayerRef.current = null;
+      droppedPinLayerRef.current = null;
+      searchLocationLayerRef.current = null;
       measurementLayerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
+    if (!ready || !droppedPinLayerRef.current) return;
+
+    async function refreshDroppedPin() {
+      const leaflet = await import("leaflet");
+      const layer = droppedPinLayerRef.current;
+      if (!layer) return;
+      layer.clearLayers();
+      if (!droppedPin) return;
+      leaflet.circleMarker([droppedPin.latitude, droppedPin.longitude], {
+        radius: 7,
+        color: "#101010",
+        weight: 2,
+        fillColor: "#ffd731",
+        fillOpacity: 1,
+      }).addTo(layer);
+    }
+
+    void refreshDroppedPin();
+  }, [ready, droppedPin]);
+
+  useEffect(() => {
     if (!ready || !mapRef.current || !viewCenter) return;
-    mapRef.current.setView([viewCenter.latitude, viewCenter.longitude], 12);
-  }, [ready, viewCenter]);
+    mapRef.current.setView([viewCenter.latitude, viewCenter.longitude], viewZoom);
+  }, [ready, viewCenter, viewZoom]);
+
+  useEffect(() => {
+    if (!ready || !searchLocationLayerRef.current) return;
+
+    async function refreshSearchLocation() {
+      const leaflet = await import("leaflet");
+      const layer = searchLocationLayerRef.current;
+      if (!layer) return;
+      layer.clearLayers();
+      if (!searchLocation) return;
+      const marker = leaflet.circleMarker([searchLocation.latitude, searchLocation.longitude], {
+        radius: 9,
+        color: "#ffffff",
+        weight: 3,
+        fillColor: "#7256d8",
+        fillOpacity: 1,
+      }).addTo(layer);
+      const tooltip = document.createElement("span");
+      tooltip.textContent = `Temporary search: ${searchLocation.name}`;
+      marker.bindTooltip(tooltip).openTooltip();
+    }
+
+    void refreshSearchLocation();
+  }, [ready, searchLocation]);
 
   useEffect(() => {
     if (!ready || !userLocationLayerRef.current) return;
@@ -172,6 +236,37 @@ export default function MapCanvas({
       if (!layer) return;
 
       layer.clearLayers();
+      const boundary = boundaryPoints.map(
+        ({ latitude, longitude }) => [latitude, longitude] as [number, number],
+      );
+      if (boundary.length > 1) {
+        const shape = boundary.length > 2
+          ? leaflet.polygon(boundary, {
+              color: "#101010",
+              weight: 2,
+              fillColor: "#e9ccff",
+              fillOpacity: 0.35,
+            })
+          : leaflet.polyline(boundary, { color: "#5c4ade", weight: 3, dashArray: "7 6" });
+        shape.addTo(layer);
+        boundaryPoints.forEach((item, index) => {
+          leaflet.circleMarker(boundary[index], {
+            radius: 5,
+            color: "#101010",
+            weight: 1,
+            fillColor: "#ffd731",
+            fillOpacity: 1,
+          }).addTo(layer).bindTooltip(item.label ?? `P${index + 1}`);
+        });
+      } else if (boundary.length === 1) {
+        leaflet.circleMarker(boundary[0], {
+          radius: 7,
+          color: "#101010",
+          weight: 2,
+          fillColor: "#ffd731",
+          fillOpacity: 1,
+        }).addTo(layer).bindTooltip(boundaryPoints[0].label ?? "P1");
+      }
       const points = measurementPoints.map(
         ({ latitude, longitude }) => [latitude, longitude] as [number, number],
       );
@@ -202,7 +297,23 @@ export default function MapCanvas({
     }
 
     void refreshMeasurement();
-  }, [measurementPoints, measurementMode, ready]);
+  }, [boundaryPoints, measurementPoints, measurementMode, ready]);
+
+  useEffect(() => {
+    if (!ready || !fitToBoundary || !boundaryPoints.length || !mapRef.current) return;
+    void import("leaflet").then((leaflet) => {
+      const map = mapRef.current;
+      if (!map) return;
+      const bounds = leaflet.latLngBounds(
+        boundaryPoints.map(({ latitude, longitude }) => [latitude, longitude] as [number, number]),
+      );
+      if (boundaryPoints.length === 1) {
+        map.setView([boundaryPoints[0].latitude, boundaryPoints[0].longitude], 15);
+      } else {
+        map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15 });
+      }
+    });
+  }, [boundaryPoints, fitToBoundary, ready]);
 
   return <div ref={containerRef} className="map-canvas" aria-label="Interactive map of photo locations" />;
 }

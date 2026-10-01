@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeReturnTo } from "@/lib/safe-return-to";
 
 function authRedirect(message: string): never {
   redirect(`/login?message=${encodeURIComponent(message)}`);
@@ -17,13 +18,15 @@ export async function signIn(formData: FormData) {
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) authRedirect(error.message);
-  redirect("/");
+  const returnTo = formData.get("returnTo");
+  redirect(safeReturnTo(typeof returnTo === "string" ? returnTo : null));
 }
 
 export async function signUp(formData: FormData) {
   const displayName = String(formData.get("displayName") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const returnTo = safeReturnTo(String(formData.get("returnTo") ?? ""));
   if (!email || password.length < 8) {
     authRedirect("Use a valid email and a password with at least 8 characters.");
   }
@@ -36,14 +39,14 @@ export async function signUp(formData: FormData) {
     password,
     options: {
       data: { display_name: displayName },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`,
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback?next=${encodeURIComponent(returnTo)}`,
     },
   });
   if (error) authRedirect(error.message);
   if (!data.session) {
-    redirect(`/login?message=${encodeURIComponent("Check your email to confirm your account, then sign in.")}`);
+    redirect(`/login?next=${encodeURIComponent(returnTo)}&message=${encodeURIComponent("Check your email to confirm your account, then sign in.")}`);
   }
-  redirect("/");
+  redirect(returnTo);
 }
 
 export async function requestPasswordReset(formData: FormData) {

@@ -2,14 +2,18 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ArrowRight, Camera, LocateFixed, MapPin, MessageSquare, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Camera, Copy, LocateFixed, MapPin, MessageSquare, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import ContactLinks from "@/components/contact-links";
+import LocationSearch from "@/components/location-search";
+import GisToolFab from "@/components/gis-tool-fab";
 import ThemeToggle from "@/components/theme-toggle";
 import { categoryColors, categoryIcons } from "@/lib/photo-style";
 import { createClient } from "@/lib/supabase/client";
 import { categories, type Category, type PhotoRecord } from "@/types/photo";
 import type { ReviewRecord } from "@/types/review";
+import type { ExternalLocation } from "@/types/location-search";
 
 const MapCanvas = dynamic(() => import("@/components/map-canvas"), { ssr: false });
 
@@ -21,6 +25,7 @@ type ExploreProps = {
 };
 
 export default function Explore({ photos, reviews: initialReviews, viewerId, loadError }: ExploreProps) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<Category | "All">("All");
   const [activePhotoId, setActivePhotoId] = useState<string | null>(photos[0]?.id ?? null);
@@ -35,6 +40,10 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [isLocating, setIsLocating] = useState(false);
+  const [droppedPin, setDroppedPin] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [searchLocation, setSearchLocation] = useState<ExternalLocation | null>(null);
+  const [copyNotice, setCopyNotice] = useState("");
 
   const visiblePhotos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -61,6 +70,25 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
     setActivePhotoId(photoId);
     setReviewError("");
     setReviewNotice("");
+  }
+
+  function selectSearchLocation(location: ExternalLocation) {
+    setSearchLocation(location);
+    setMapCenter({ latitude: location.latitude, longitude: location.longitude });
+    setDroppedPin(null);
+    if (location.archivedPhoto) selectPhoto(location.archivedPhoto.id);
+  }
+
+  function archiveLocation(location: ExternalLocation) {
+    const params = new URLSearchParams({
+      archiveLat: String(location.latitude),
+      archiveLon: String(location.longitude),
+      archiveName: location.name,
+    });
+    const returnTo = `/?${params.toString()}`;
+    router.push(viewerId
+      ? returnTo
+      : `/login?mode=signup&next=${encodeURIComponent(returnTo)}`);
   }
 
   function updateReviewDraft(body: string) {
@@ -92,6 +120,16 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
+  }
+
+  async function copyDroppedCoordinates() {
+    if (!droppedPin) return;
+    try {
+      await navigator.clipboard.writeText(`${droppedPin.latitude.toFixed(6)}, ${droppedPin.longitude.toFixed(6)}`);
+      setCopyNotice("Coordinates copied.");
+    } catch (error) {
+      setCopyNotice(`Could not copy coordinates: ${error instanceof Error ? error.message : "Clipboard unavailable."}`);
+    }
   }
 
   async function saveReview(event: FormEvent<HTMLFormElement>) {
@@ -252,15 +290,34 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
             <div><p className="eyebrow">LOOK AROUND</p><h2>Places on the map.</h2></div>
             <span className="explore-map-count">{visiblePhotos.length} {visiblePhotos.length === 1 ? "place" : "places"}</span>
           </div>
+          <LocationSearch
+            photos={photos}
+            onSelect={selectSearchLocation}
+            onOpenArchived={(photo) => {
+              selectPhoto(photo.id);
+              if (photo.latitude !== null && photo.longitude !== null) {
+                setMapCenter({ latitude: photo.latitude, longitude: photo.longitude });
+              }
+            }}
+            onArchive={archiveLocation}
+          />
           <div className="map-workspace explore-map">
             <MapCanvas
               photos={visiblePhotos}
               activePhoto={activePhotoId}
-              viewCenter={userLocation}
+              viewCenter={mapCenter ?? userLocation}
               userLocation={userLocation}
+              droppedPin={droppedPin}
+              searchLocation={searchLocation}
               measurementPoints={[]}
               measurementMode={null}
               onSelectPhoto={(photo) => selectPhoto(photo.id)}
+              onMapPick={(coordinates) => {
+                setDroppedPin(coordinates);
+                setSearchLocation(null);
+                setMapCenter(coordinates);
+                setCopyNotice("");
+              }}
             />
             <div className="map-top-left"><div className="map-count-pill"><span className="count-pin"><MapPin size={13} fill="currentColor" /></span>{visiblePhotos.filter((photo) => photo.latitude !== null).length}<span>places pinned</span></div></div>
             <div className="explore-map-controls">
@@ -279,11 +336,17 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
                   {activePhoto.description && <p className="explore-expectation">{activePhoto.description}</p>}
                   <p className="explore-contributor">Shared by a GeoArchive contributor · {new Date(activePhoto.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                 </div>
-                {locationStatus && <p className="explore-location-status" role="status">{locationStatus}</p>}
               </article>
             )}
             <div className="explore-map-note"><ShieldCheck size={13} />Community notes are personal experiences, not guarantees. Conditions can change.</div>
           </div>
+          <div className="explore-coordinate-readout">
+            {droppedPin
+              ? <><MapPin size={14} /><span>{droppedPin.latitude.toFixed(6)}°,&nbsp; {droppedPin.longitude.toFixed(6)}° <small>WGS 84</small></span><button className="coordinate-copy-button" type="button" onClick={() => void copyDroppedCoordinates()} aria-label="Copy coordinates"><Copy size={13} /> Copy</button></>
+              : <><MapPin size={14} /><span>Click anywhere on the map to drop a temporary pin and inspect its coordinates.</span></>}
+          </div>
+          {copyNotice && <p className="explore-location-status" role="status">{copyNotice}</p>}
+          {locationStatus && <p className="explore-location-status" role="status">{locationStatus}</p>}
           {activePhoto && (
             <section className="explore-reviews" aria-labelledby="reviews-heading">
               <div className="explore-reviews-heading">
@@ -325,6 +388,7 @@ export default function Explore({ photos, reviews: initialReviews, viewerId, loa
         </section>
       </section>
       <footer className="page-footer"><span>SEE A PLACE. SHARE WHAT YOU LEARNED. <span className="footer-star">✳</span></span><ContactLinks /><Link href="/login?mode=signup">Sign in to add places →</Link></footer>
+      <GisToolFab />
     </main>
   );
 }

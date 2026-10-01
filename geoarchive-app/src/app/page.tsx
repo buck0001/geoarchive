@@ -4,7 +4,12 @@ import { toPhotoRecord } from "@/lib/photo-record";
 import { createClient } from "@/lib/supabase/server";
 import type { PhotoRecord } from "@/types/photo";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ archiveLat?: string; archiveLon?: string; archiveName?: string }>;
+}) {
+  const params = await searchParams;
   const supabase = await createClient();
   if (!supabase) redirect("/explore");
 
@@ -50,6 +55,15 @@ export default async function Home() {
       userEmail={user.email ?? ""}
       displayName={profile?.display_name ?? ""}
       loadError={loadError}
+      initialArchive={(() => {
+        const latitude = Number(params.archiveLat);
+        const longitude = Number(params.archiveLon);
+        return params.archiveLat && params.archiveLon &&
+          Number.isFinite(latitude) && latitude >= -90 && latitude <= 90 &&
+          Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+          ? { latitude, longitude, name: params.archiveName ?? "" }
+          : null;
+      })()}
     />
   );
 }
