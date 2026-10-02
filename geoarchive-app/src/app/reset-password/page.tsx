@@ -1,3 +1,4 @@
+import { ArrowRight, MapPin, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { updatePassword } from "@/app/auth/actions";
 import ThemeToggle from "@/components/theme-toggle";
@@ -11,10 +12,10 @@ export default async function ResetPasswordPage() {
 
   return (
     <main className="auth-page">
-      <div className="auth-marquee">YOUR WORLD, IN YOUR WORDS <span>✳</span> EVERY PLACE HAS A STORY <span>✳</span></div>
+      <div className="auth-marquee">YOUR WORLD, IN YOUR WORDS <span aria-hidden="true"><Sparkles size={13} /></span> EVERY PLACE HAS A STORY <span aria-hidden="true"><Sparkles size={13} /></span></div>
       <header className="auth-header">
         <Link className="brand" href="/">
-          <span className="brand-mark">⌖</span>
+          <span className="brand-mark"><MapPin size={18} strokeWidth={2.7} /></span>
           <span className="brand-word">geoarchive<span>.</span></span>
           <span className="brand-beta">FIELD NOTES</span>
         </Link>
@@ -33,17 +34,17 @@ export default async function ResetPasswordPage() {
               <label className="field-label">CONFIRM PASSWORD
                 <input className="text-input" type="password" name="confirmation" autoComplete="new-password" minLength={8} required />
               </label>
-              <button className="primary-button auth-submit" type="submit">Update password <span aria-hidden="true">→</span></button>
+              <button className="primary-button auth-submit" type="submit">Update password <ArrowRight size={14} aria-hidden="true" /></button>
             </form>
           </>
         ) : (
           <>
             <p className="auth-copy">Open this page from the secure password-reset link in your email.</p>
-            <Link className="primary-button auth-submit" href="/forgot-password">Request a new reset link <span aria-hidden="true">→</span></Link>
+            <Link className="primary-button auth-submit" href="/forgot-password">Request a new reset link <ArrowRight size={14} aria-hidden="true" /></Link>
           </>
         )}
       </section>
-      <footer className="auth-footer">GEOARCHIVE <span>✳</span> A LITTLE ARCHIVE FOR EVERYWHERE</footer>
+      <footer className="auth-footer">GEOARCHIVE <span aria-hidden="true"><Sparkles size={12} /></span> A LITTLE ARCHIVE FOR EVERYWHERE</footer>
     </main>
   );
 }

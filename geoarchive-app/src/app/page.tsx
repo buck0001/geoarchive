@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import Dashboard from "@/components/dashboard";
 import { toPhotoRecord } from "@/lib/photo-record";
+import { toPlaceRecord } from "@/lib/place-record";
 import { createClient } from "@/lib/supabase/server";
-import type { PhotoRecord } from "@/types/photo";
+import type { PhotoRecord, PlaceRecord } from "@/types/photo";
 
 export default async function Home({
   searchParams,
@@ -14,7 +15,7 @@ export default async function Home({
   if (!supabase) redirect("/explore");
 
   const { data: { user }, error: userError } = await supabase.auth.getUser();
-  if (userError || !user) redirect("/explore");
+  if (userError || !user) redirect("/welcome");
 
   let initialArchive: {
     latitude: number | null;
@@ -98,9 +99,24 @@ export default async function Home({
     });
   }
 
+  const placeIds = [...new Set(photos.map((photo) => photo.placeId).filter((placeId): placeId is string => placeId !== null))];
+  let places: PlaceRecord[] = [];
+  if (placeIds.length) {
+    const { data: placeRows, error: placesError } = await supabase
+      .from("places")
+      .select("id,created_by,name,category,latitude,longitude,location_name,description,visibility,created_at")
+      .in("id", placeIds);
+    if (placesError) {
+      loadError = `${loadError ? `${loadError} ` : ""}Could not load place details: ${placesError.message}`;
+    } else {
+      places = (placeRows ?? []).map(toPlaceRecord);
+    }
+  }
+
   return (
     <Dashboard
       initialPhotos={photos}
+      initialPlaces={places}
       userId={user.id}
       username={profile?.username ?? ""}
       displayName={profile?.display_name ?? ""}

@@ -245,7 +245,7 @@ export function convertCoordinates(
 }
 
 export function calculateBoundary(
-  points: PlottedCoordinate[],
+  points: Array<Pick<PlottedCoordinate, "latitude" | "longitude" | "easting" | "northing">>,
   projected: boolean,
 ): { segmentLengths: number[]; perimeter: number; areaSquareMeters: number } {
   if (points.length < 2) return { segmentLengths: [], perimeter: 0, areaSquareMeters: 0 };

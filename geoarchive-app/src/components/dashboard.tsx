@@ -33,13 +33,14 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { categories, type Category, type PhotoRecord } from "@/types/photo";
+import { categories, type Category, type PhotoRecord, type PlaceRecord } from "@/types/photo";
 import { createClient } from "@/lib/supabase/client";
 import ThemeToggle from "@/components/theme-toggle";
 import ContactLinks from "@/components/contact-links";
 import LocationSearch from "@/components/location-search";
 import GisToolFab from "@/components/gis-tool-fab";
-import { categoryColors, categoryIcons } from "@/lib/photo-style";
+import { categoryColors } from "@/lib/photo-style";
+import CategoryIcon from "@/components/category-icon";
 import type { ExternalLocation } from "@/types/location-search";
 
 const MapCanvas = dynamic(() => import("@/components/map-canvas"), { ssr: false });
@@ -48,6 +49,7 @@ type Coordinates = { latitude: number; longitude: number };
 type ToolMode = "browse" | "distance" | "area" | "nearby";
 type DashboardProps = {
   initialPhotos: PhotoRecord[];
+  initialPlaces: PlaceRecord[];
   userId: string;
   username: string;
   displayName: string;
@@ -63,7 +65,7 @@ function distanceBetween(a: Coordinates, b: Coordinates) {
   );
 }
 
-export default function Dashboard({ initialPhotos, userId, username, displayName, loadError, initialArchive = null }: DashboardProps) {
+export default function Dashboard({ initialPhotos, initialPlaces, userId, username, displayName, loadError, initialArchive = null }: DashboardProps) {
   const router = useRouter();
   const [photos, setPhotos] = useState<PhotoRecord[]>(initialPhotos);
   const [activePhotoId, setActivePhotoId] = useState<string | null>(initialPhotos[0]?.id ?? null);
@@ -93,6 +95,7 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
       ? { latitude: initialArchive.latitude, longitude: initialArchive.longitude }
       : null,
   );
+  const [mapZoom, setMapZoom] = useState(12);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [droppedPin, setDroppedPin] = useState<Coordinates | null>(null);
   const [searchLocation, setSearchLocation] = useState<ExternalLocation | null>(null);
@@ -106,6 +109,8 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
   useEffect(() => {
     if (initialArchive) router.replace("/", { scroll: false });
   }, [initialArchive, router]);
+
+  const placeById = useMemo(() => new Map(initialPlaces.map((place) => [place.id, place])), [initialPlaces]);
 
   const visiblePhotos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -191,10 +196,38 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
     }
   }
 
+  function panToPhoto(photoId: string) {
+    const target = photos.find((item) => item.id === photoId);
+    if (!target) return;
+    const targetPlace = target.placeId ? placeById.get(target.placeId) : undefined;
+    const targetLat = targetPlace?.latitude ?? target.latitude;
+    const targetLon = targetPlace?.longitude ?? target.longitude;
+    if (targetLat === null || targetLon === null) return;
+    setMapCenter({ latitude: targetLat, longitude: targetLon });
+    setMapZoom(15);
+  }
+
+  function scrollMapIntoView(selector: string) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (!window.matchMedia("(max-width: 640px)").matches) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.querySelector(selector)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
+  }
+
+  function selectPhoto(photoId: string, pan = true) {
+    setActivePhotoId(photoId);
+    if (pan) {
+      panToPhoto(photoId);
+      scrollMapIntoView(".map-workspace");
+    }
+  }
+
   function selectSearchLocation(location: ExternalLocation) {
     setSearchLocation(location);
     setMapCenter({ latitude: location.latitude, longitude: location.longitude });
+    setMapZoom(location.archivedPhoto ? 14 : 15);
     setActivePhotoId(location.archivedPhoto?.id ?? null);
+    scrollMapIntoView(".map-workspace");
     setCoordinates({ latitude: location.latitude, longitude: location.longitude });
     setDroppedPin(null);
   }
@@ -471,11 +504,11 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
     <main className="app-shell">
       <div className="announcement-bar">
         <span>YOUR WORLD, IN YOUR WORDS</span>
-        <span aria-hidden="true">✳</span>
+        <span aria-hidden="true"><Sparkles size={13} /></span>
         <span>EVERY PLACE HAS A STORY</span>
-        <span aria-hidden="true">✳</span>
+        <span aria-hidden="true"><Sparkles size={13} /></span>
         <span>YOUR WORLD, IN YOUR WORDS</span>
-        <span aria-hidden="true">✳</span>
+        <span aria-hidden="true"><Sparkles size={13} /></span>
         <span>EVERY PLACE HAS A STORY</span>
       </div>
 
@@ -508,10 +541,10 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
         <aside className="sidebar">
           <div className="sidebar-heading">
             <div>
-              <p className="eyebrow"><span className="eyebrow-spark">✳</span> YOUR FIELD JOURNAL</p>
+              <p className="eyebrow"><span className="eyebrow-spark"><Sparkles size={14} /></span> YOUR FIELD JOURNAL</p>
               <h1>Places<br />to <span>keep.</span></h1>
             </div>
-            <span className="sticker sticker-sun" aria-hidden="true">✳</span>
+            <span className="sticker sticker-sun" aria-hidden="true"><Sparkles size={22} /></span>
           </div>
           <p className="sidebar-intro">A little archive for all the places that made you stop and look.</p>
 
@@ -561,7 +594,7 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
                 onClick={() => setCategoryFilter(categoryFilter === category ? "All" : category)}
               >
                 <span className={`category-symbol sticker-${categoryColors[category]}`}>
-                  {categoryIcons[category]}
+                  <CategoryIcon category={category} size={12} />
                 </span>
                 <span>{category}</span>
                 <span className="category-count">
@@ -604,6 +637,7 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
 
           <LocationSearch
             photos={photos}
+            places={initialPlaces}
             onSelect={selectSearchLocation}
             onOpenArchived={(location) => {
               if (location.placeId) router.push(`/places/${location.placeId}`);
@@ -619,12 +653,13 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
               photos={visiblePhotos}
               activePhoto={activePhotoId}
               viewCenter={mapCenter}
+              viewZoom={mapZoom}
               searchLocation={searchLocation}
               userLocation={userLocation}
               droppedPin={droppedPin}
               measurementPoints={measurePoints}
               measurementMode={toolMode === "distance" || toolMode === "area" ? toolMode : null}
-              onSelectPhoto={(photo) => setActivePhotoId(photo.id)}
+              onSelectPhoto={(photo) => selectPhoto(photo.id)}
               onMapPick={handleMapPick}
               onCoordinatesChange={setCoordinates}
             />
@@ -653,7 +688,7 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={activePhoto.imageUrl} alt="" className="place-image" />
                   <span className={`place-category sticker-${categoryColors[activePhoto.category]}`}>
-                    {categoryIcons[activePhoto.category]}&nbsp; {activePhoto.category}
+                    <CategoryIcon category={activePhoto.category} size={11} /> {activePhoto.category}
                   </span>
                 </div>
                 <div className="place-card-body">
@@ -711,12 +746,12 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
           {visiblePhotos.slice(0, 4).map((photo, index) => (
             <button className="memory-card" key={photo.id} type="button" onClick={() => {
               setActivePhotoId(photo.id);
-              document.querySelector(".map-workspace")?.scrollIntoView({ behavior: "smooth", block: "center" });
+              scrollMapIntoView(".map-workspace");
             }}>
               <div className="memory-image">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photo.imageUrl} alt="" />
-                <span className={`memory-sticker sticker-${categoryColors[photo.category]}`}>{categoryIcons[photo.category]}</span>
+                <span className={`memory-sticker sticker-${categoryColors[photo.category]}`}><CategoryIcon category={photo.category} size={15} /></span>
                 {index === 0 && <span className="memory-new"><Check size={11} /> JUST ADDED</span>}
               </div>
               <div className="memory-meta"><span>{photo.category.toUpperCase()}</span><span>{new Date(`${photo.createdAt}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span></div>
@@ -728,7 +763,7 @@ export default function Dashboard({ initialPhotos, userId, username, displayName
         </div>
       </section>
 
-      <footer className="page-footer"><span>MADE FOR THE PLACES THAT STAY WITH YOU <span className="footer-star">✳</span></span><ContactLinks /><span>GEOARCHIVE&nbsp; © 2026</span></footer>
+      <footer className="page-footer"><span>MADE FOR THE PLACES THAT STAY WITH YOU <span className="footer-star"><Sparkles size={12} /></span></span><ContactLinks /><span>GEOARCHIVE&nbsp; © 2026</span></footer>
       <GisToolFab />
 
       {modalOpen && (

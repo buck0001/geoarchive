@@ -156,8 +156,9 @@ export default function MapCanvas({
 
   useEffect(() => {
     if (!ready || !mapRef.current || !viewCenter) return;
+    if (searchLocation && Math.abs(viewCenter.latitude - searchLocation.latitude) < 1e-9 && Math.abs(viewCenter.longitude - searchLocation.longitude) < 1e-9) return;
     mapRef.current.setView([viewCenter.latitude, viewCenter.longitude], viewZoom);
-  }, [ready, viewCenter, viewZoom]);
+  }, [ready, viewCenter, viewZoom, searchLocation]);
 
   useEffect(() => {
     if (!ready || !searchLocationLayerRef.current) return;
@@ -182,6 +183,11 @@ export default function MapCanvas({
 
     void refreshSearchLocation();
   }, [ready, searchLocation]);
+
+  useEffect(() => {
+    if (!ready || !mapRef.current || !searchLocation) return;
+    mapRef.current.flyTo([searchLocation.latitude, searchLocation.longitude], viewZoom, { duration: 1.1 });
+  }, [ready, searchLocation, viewZoom]);
 
   useEffect(() => {
     if (!ready || !userLocationLayerRef.current) return;
@@ -241,7 +247,10 @@ export default function MapCanvas({
 
           const category = document.createElement("span");
           category.className = `place-category sticker-${popup.categoryClass}`;
-          category.textContent = `${popup.categoryIcon} ${popup.category}`;
+          const iconHost = document.createElement("span");
+          iconHost.className = "place-category-icon";
+          iconHost.innerHTML = popup.categoryIcon;
+          category.append(iconHost, document.createTextNode(` ${popup.category}`));
           body.append(category);
 
           const location = document.createElement("p");

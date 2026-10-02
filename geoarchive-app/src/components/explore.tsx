@@ -3,13 +3,14 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Camera, Copy, LocateFixed, MapPin, MessageSquare, Search, Send, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Camera, Copy, LocateFixed, MapPin, MessageSquare, Search, Send, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import ContactLinks from "@/components/contact-links";
 import LocationSearch from "@/components/location-search";
 import GisToolFab from "@/components/gis-tool-fab";
 import ThemeToggle from "@/components/theme-toggle";
-import { categoryColors, categoryIcons } from "@/lib/photo-style";
+import { categoryColors, categoryIconSvg } from "@/lib/photo-style";
+import CategoryIcon from "@/components/category-icon";
 import { createClient } from "@/lib/supabase/client";
 import { categories, type Category, type PhotoRecord, type PlaceRecord } from "@/types/photo";
 import type { ReviewRecord } from "@/types/review";
@@ -43,6 +44,7 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
   const [isLocating, setIsLocating] = useState(false);
   const [droppedPin, setDroppedPin] = useState<{ latitude: number; longitude: number } | null>(null);
   const [mapCenter, setMapCenter] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [mapZoom, setMapZoom] = useState(12);
   const [searchLocation, setSearchLocation] = useState<ExternalLocation | null>(null);
   const [copyNotice, setCopyNotice] = useState("");
   const placeById = useMemo(() => new Map(places.map((place) => [place.id, place])), [places]);
@@ -79,7 +81,7 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
       photoId: activePhoto.id,
       imageUrl: activePhoto.imageUrl,
       category,
-      categoryIcon: categoryIcons[category],
+      categoryIcon: categoryIconSvg(category),
       categoryClass: categoryColors[category],
       locationName: activePlace?.locationName || activePhoto.locationName || "Location not shared",
       title: activePlace?.name ?? activePhoto.title,
@@ -96,8 +98,31 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
     ? reviewDrafts[activePhoto.placeId ?? activePhoto.id] ?? ownReview?.body ?? ""
     : "";
 
-  function selectPhoto(photoId: string) {
+  function panToPhoto(photoId: string) {
+    const target = photos.find((item) => item.id === photoId);
+    if (!target) return;
+    const targetPlace = target.placeId ? placeById.get(target.placeId) : undefined;
+    const targetLat = targetPlace?.latitude ?? target.latitude;
+    const targetLon = targetPlace?.longitude ?? target.longitude;
+    if (targetLat === null || targetLon === null) return;
+    setMapCenter({ latitude: targetLat, longitude: targetLon });
+    setMapZoom(15);
+    setDroppedPin({ latitude: targetLat, longitude: targetLon });
+  }
+
+  function scrollMapIntoView(selector: string) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (!window.matchMedia("(max-width: 640px)").matches) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.querySelector(selector)?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
+  }
+
+  function selectPhoto(photoId: string, pan = true) {
     setActivePhotoId(photoId);
+    if (pan) {
+      panToPhoto(photoId);
+      scrollMapIntoView(".explore-map");
+    }
     setReviewError("");
     setReviewNotice("");
   }
@@ -105,8 +130,10 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
   function selectSearchLocation(location: ExternalLocation) {
     setSearchLocation(location);
     setMapCenter({ latitude: location.latitude, longitude: location.longitude });
+    setMapZoom(location.archivedPhoto || location.archivedPlace ? 14 : 15);
     setDroppedPin(null);
-    if (location.archivedPhoto) selectPhoto(location.archivedPhoto.id);
+    if (location.archivedPhoto) selectPhoto(location.archivedPhoto.id, false);
+    scrollMapIntoView(".explore-map");
   }
 
   function archiveLocation(location: ExternalLocation) {
@@ -257,8 +284,8 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
   return (
     <main className="app-shell explore-page">
       <div className="announcement-bar">
-        <span>PLACES SHARED BY PEOPLE, NOT BROCHURES</span><span aria-hidden="true">✳</span>
-        <span>SEE A LITTLE MORE BEFORE YOU GO</span><span aria-hidden="true">✳</span>
+        <span>PLACES SHARED BY PEOPLE, NOT BROCHURES</span><span aria-hidden="true"><Sparkles size={13} /></span>
+        <span>SEE A LITTLE MORE BEFORE YOU GO</span><span aria-hidden="true"><Sparkles size={13} /></span>
         <span>PLACES SHARED BY PEOPLE, NOT BROCHURES</span>
       </div>
       <header className="topbar">
@@ -276,11 +303,11 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
 
       <section className="explore-hero">
         <div className="explore-hero-copy">
-          <p className="eyebrow"><span className="eyebrow-spark">✳</span> THE COMMUNITY FIELD GUIDE</p>
+          <p className="eyebrow"><span className="eyebrow-spark"><Sparkles size={14} /></span> THE COMMUNITY FIELD GUIDE</p>
           <h1>See what’s <span>out there.</span></h1>
           <p>Real places, seen and shared by the people who stopped there. A small heads-up before you make the trip.</p>
         </div>
-        <div className="explore-hero-sticker" aria-hidden="true">↗</div>
+        <div className="explore-hero-sticker" aria-hidden="true"><ArrowUpRight size={68} /></div>
         <div className="explore-total"><strong>{totalPlaceCount}</strong><span>shared {totalPlaceCount === 1 ? "place" : "places"}</span></div>
       </section>
 
@@ -297,7 +324,7 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
             <button className={`explore-filter${categoryFilter === "All" ? " explore-filter-active" : ""}`} type="button" onClick={() => setCategoryFilter("All")}>All places</button>
             {categories.map((category) => (
               <button className={`explore-filter${categoryFilter === category ? " explore-filter-active" : ""}`} type="button" key={category} onClick={() => setCategoryFilter(categoryFilter === category ? "All" : category)}>
-                <span className={`category-symbol sticker-${categoryColors[category]}`}>{categoryIcons[category]}</span>{category}
+                <span className={`category-symbol sticker-${categoryColors[category]}`}><CategoryIcon category={category} size={10} /></span>{category}
               </button>
             ))}
           </div>
@@ -323,7 +350,7 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
                   <span className="explore-place-location"><MapPin size={11} />{place?.locationName || photo.locationName || "Location not shared"}</span>
                   <span className="explore-place-review-count"><MessageSquare size={11} />{reviewsAtPlace.length} reviews · {photosAtPlace.length} photos · {contributors.size} contributors</span>
                 </span>
-                <span className={`explore-place-mark sticker-${categoryColors[place?.category ?? photo.category]}`}>{categoryIcons[place?.category ?? photo.category]}</span>
+                <span className={`explore-place-mark sticker-${categoryColors[place?.category ?? photo.category]}`}><CategoryIcon category={place?.category ?? photo.category} size={13} /></span>
               </button>
               );
             })}
@@ -355,6 +382,7 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
               activePhoto={activePhotoId}
               popup={activePopup}
               viewCenter={mapCenter ?? userLocation}
+              viewZoom={mapZoom}
               userLocation={userLocation}
               droppedPin={droppedPin}
               searchLocation={searchLocation}
@@ -419,10 +447,10 @@ export default function Explore({ photos, places, reviews: initialReviews, viewe
               {activePlace && <button className="pill-button" type="button" onClick={() => contributeToPlace(activePlace.id)}>Add photos to this place <ArrowRight size={13} /></button>}
             </section>
           )}
-          <div className="explore-privacy-note"><span className="sticker sticker-sun">✳</span><span><strong>Shared with care.</strong> Only places their contributor chose to make public appear here. Approximate pins are rounded for privacy.</span></div>
+          <div className="explore-privacy-note"><span className="sticker sticker-sun" aria-hidden="true"><Sparkles size={22} /></span><span><strong>Shared with care.</strong> Only places their contributor chose to make public appear here. Approximate pins are rounded for privacy.</span></div>
         </section>
       </section>
-      <footer className="page-footer"><span>SEE A PLACE. SHARE WHAT YOU LEARNED. <span className="footer-star">✳</span></span><ContactLinks /><Link href="/login?mode=signup">Sign in to add places →</Link></footer>
+      <footer className="page-footer"><span>SEE A PLACE. SHARE WHAT YOU LEARNED. <span className="footer-star"><Sparkles size={12} /></span></span><ContactLinks /><Link href="/login?mode=signup">Sign in to add places <ArrowRight size={12} /></Link></footer>
       <GisToolFab />
     </main>
   );

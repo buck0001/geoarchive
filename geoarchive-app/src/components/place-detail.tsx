@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Camera, MapPin, MessageSquare, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { categoryColors, categoryIcons } from "@/lib/photo-style";
+import { categoryColors } from "@/lib/photo-style";
+import CategoryIcon from "@/components/category-icon";
 import type { PhotoRecord, PlaceRecord } from "@/types/photo";
 import type { ReviewRecord } from "@/types/review";
 
@@ -131,7 +132,7 @@ export default function PlaceDetail({ place, photos, reviews: initialReviews, vi
             <img src={photos[0].imageUrl} alt={`Recent community photo of ${place.name}`} />
           ) : <div className="place-detail-placeholder"><Camera size={28} /></div>}
           <div className="place-detail-title">
-            <span className={`place-category sticker-${categoryColors[place.category]}`}>{categoryIcons[place.category]}&nbsp; {place.category}</span>
+            <span className={`place-category sticker-${categoryColors[place.category]}`}><CategoryIcon category={place.category} size={11} /> {place.category}</span>
             <h1>{place.name}</h1>
             {place.locationName && <p><MapPin size={14} /> {place.locationName}</p>}
             {place.description && <p className="place-detail-description">{place.description}</p>}

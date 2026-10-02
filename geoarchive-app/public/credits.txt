@@ -1,0 +1,37 @@
+GeoArchive — welcome page credits
+=================================
+
+PHOTOS
+All three photos are used as "EXAMPLE STORIES" on /welcome.
+Each was cropped to a 480x480 square and converted to WebP.
+
+1) Mount Everest, Himalayas
+   Photographer: Vyacheslav Argenberg
+   Licence: CC BY 4.0
+   Source: https://commons.wikimedia.org/wiki/File:Mount_Everest,_Himalayas.jpg
+
+2) Morning Joggers Near Eiffel Tower
+   Photographer: gadgetdude (Flickr)
+   Licence: CC BY 2.0
+   Source: https://www.flickr.com/photos/49503023809@N01/4102497282
+
+3) Zuma Rock with ostrich (Nigeria)
+   Photo supplied by the project owner. Original kept at
+   src/assets/welcome/zuma-rock-source.jpg; cropped version used on the page:
+   src/assets/welcome/zuma-rock.webp.
+   Licence: NOT VERIFIED — provenance unknown, appears to be an editorial-style
+   photograph. Before any public or commercial use, replace it with a properly
+   licensed image (e.g. "Zuma Rock in the dry season" by Hui Linbo,
+   CC BY-SA 4.0, Wikimedia Commons) or obtain written permission.
+   Changes: cropped to a 480x480 square and converted to WebP.
+
+CC BY terms: https://creativecommons.org/licenses/by/4.0/ (and /by/2.0/)
+— credit the author, link the licence, and note changes (crop + WebP).
+
+FONT
+"Vintage Brush" by Aveni Letter Type
+   Licence: FREE FOR PERSONAL USE ONLY — not for commercial use.
+   Source: https://www.dafont.com/vintage-brush.font
+   Commercial licence: https://creativemarket.com/avenilettertype/12713481-Vintage-Handwritten-Brush-Font
+   Used as the display headline font on /welcome. If this project ever
+   goes commercial, buy the commercial licence first.
